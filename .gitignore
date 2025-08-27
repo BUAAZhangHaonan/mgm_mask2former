@@ -1,0 +1,16 @@
+*.mp4
+*.png
+*.jpg
+
+*.obj
+*.mtl
+*.ply
+*.exr
+
+*.npy
+
+*.pkl
+*.pth
+*.pt
+
+__pycache__

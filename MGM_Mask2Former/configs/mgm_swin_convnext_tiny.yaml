@@ -1,0 +1,165 @@
+_BASE_: Base-COCO-MGM-InstanceSegmentation.yaml
+MODEL:
+  META_ARCHITECTURE: "MGMMaskFormer"
+
+  # RGB Backbone: Swin Transformer Tiny
+  RGB_BACKBONE:
+    NAME: "D2SwinTransformer"
+    WEIGHTS: ""
+    SWIN:
+      EMBED_DIM: 96
+      DEPTHS: [2, 2, 6, 2]
+      NUM_HEADS: [3, 6, 12, 24]
+      WINDOW_SIZE: 7
+      APE: False
+      DROP_PATH_RATE: 0.3
+      PATCH_NORM: True
+      OUT_FEATURES: ["res2", "res3", "res4", "res5"]
+
+  # Depth Backbone: ConvNeXt Tiny
+  DEPTH_BACKBONE:
+    NAME: "ConvNeXtDepthBackbone"
+    WEIGHTS: "convnext_tiny_depth_22k_converted.pth"
+    CONVNEXT:
+      DEPTHS: [3, 3, 9, 3]
+      DIMS: [96, 192, 384, 768]
+      DROP_PATH_RATE: 0.0
+      LAYER_SCALE: 1e-6
+
+  # MGM Fusion Configuration
+  MGM:
+    ENABLED: True
+    SHARED: True
+    RESIDUAL_ALPHA: 0.05
+    LOSS_ENTROPY_W: 0.01
+    LOSS_VAR_W: 0.01
+
+  # DPE Configuration
+  DPE:
+    ENABLED: True
+
+  # Boundary Configuration
+  BOUNDARY:
+    ENABLED: False
+
+  # RGB Input Pixel Mean/Std
+  PIXEL_MEAN: [123.675, 116.280, 103.530]
+  PIXEL_STD: [58.395, 57.120, 57.375]
+
+  # Semantic Segmentation Head
+  SEM_SEG_HEAD:
+    NAME: "MGMHead"
+    IGNORE_VALUE: 255
+    NUM_CLASSES: 1
+    LOSS_WEIGHT: 1.0
+    CONVS_DIM: 256
+    MASK_DIM: 256
+    NORM: "GN"
+    PIXEL_DECODER_NAME: "MGMMSDeformAttnPixelDecoder"
+    IN_FEATURES: ["res2", "res3", "res4", "res5"]
+    DEFORMABLE_TRANSFORMER_ENCODER_IN_FEATURES: ["res3", "res4", "res5"]
+    DEFORMABLE_TRANSFORMER_ENCODER_N_POINTS: 4
+    DEFORMABLE_TRANSFORMER_ENCODER_N_HEADS: 8
+    COMMON_STRIDE: 4
+    TRANSFORMER_ENC_LAYERS: 6
+
+  MASK_FORMER:
+    TRANSFORMER_DECODER_NAME: "MGMMultiScaleMaskedTransformerDecoder"
+    TRANSFORMER_IN_FEATURE: "multi_scale_pixel_decoder"
+    DEEP_SUPERVISION: True
+    NO_OBJECT_WEIGHT: 0.1
+    CLASS_WEIGHT: 2.0
+    MASK_WEIGHT: 5.0
+    DICE_WEIGHT: 5.0
+    HIDDEN_DIM: 256
+    NUM_OBJECT_QUERIES: 100
+    NHEADS: 8
+    DROPOUT: 0.0
+    DIM_FEEDFORWARD: 2048
+    ENC_LAYERS: 0
+    DEC_LAYERS: 10
+    PRE_NORM: False
+    ENFORCE_INPUT_PROJ: False
+    SIZE_DIVISIBILITY: 32
+    TRAIN_NUM_POINTS: 12544
+    OVERSAMPLE_RATIO: 3.0
+    IMPORTANCE_SAMPLE_RATIO: 0.75
+    TEST:
+      SEMANTIC_ON: False
+      INSTANCE_ON: True
+      PANOPTIC_ON: False
+      OVERLAP_THRESHOLD: 0.8
+      OBJECT_MASK_THRESHOLD: 0.8
+
+# 数据集配置
+DATASETS:
+  TRAIN: ("coco_instance_train_rgbd",)
+  TEST: ("coco_instance_val_rgbd",)
+
+# 数据加载器配置
+DATALOADER:
+  NUM_WORKERS: 4
+  ASPECT_RATIO_GROUPING: True
+  FILTER_EMPTY_ANNOTATIONS: True
+  REPEAT_THRESHOLD: 0.0
+
+# RGB-D Input Configuration
+INPUT:
+  IMAGE_SIZE: 1024
+  MIN_SCALE: 0.1
+  MAX_SCALE: 2.0
+  FORMAT: "RGB"
+  DATASET_MAPPER_NAME: "coco_instance_lsj_rgbd"
+  RANDOM_FLIP: "horizontal"
+  SIZE_DIVISIBILITY: 32
+
+  # RGB光度增强
+  RGB_PHOTO_AUG:
+    ENABLED: False
+    BRIGHTNESS: 0.2
+    CONTRAST: 0.2
+    SATURATION: 0.1
+    HUE: 0.0
+
+  # 深度数据配置
+  DEPTH_FORMAT: "I"
+  DEPTH_SCALE: 0.001
+  DEPTH_SHIFT: 0.0
+  DEPTH_CLIP_MIN: 0.0
+  DEPTH_CLIP_MAX: 1.0
+  DEPTH_NORM: "minmax"
+  DEPTH_NOISE:
+    ENABLED: False
+    GAUSSIAN_STD: 0.0
+    SPECKLE_STD: 0.0
+    DROP_PROB: 0.0
+    DROP_VAL: 0.0
+
+# 求解器配置
+SOLVER:
+  IMS_PER_BATCH: 16
+  BASE_LR: 0.0001
+  STEPS: (327778, 355092)
+  MAX_ITER: 368750
+  WARMUP_FACTOR: 1.0
+  WARMUP_ITERS: 10
+  WARMUP_METHOD: "linear"
+  GAMMA: 0.1
+  OPTIMIZER: "ADAMW"
+  BACKBONE_MULTIPLIER: 0.1
+  WEIGHT_DECAY: 0.05
+  WEIGHT_DECAY_NORM: 0.0
+  WEIGHT_DECAY_EMBED: 0.0
+  CLIP_GRADIENTS:
+    ENABLED: False
+  AMP:
+    ENABLED: True
+
+# 测试配置
+TEST:
+  EVAL_PERIOD: 5000
+  AUG:
+    ENABLED: False
+
+# 输出配置
+OUTPUT_DIR: "./output"
