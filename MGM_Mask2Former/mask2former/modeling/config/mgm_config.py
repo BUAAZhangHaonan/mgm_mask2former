@@ -122,16 +122,24 @@ def add_mgm_config(cfg: CN):
     cfg.MODEL.MGM.HIDDEN_DIM = 128
     cfg.MODEL.MGM.FEATURE_DIMS = [96, 192, 384, 768]
     cfg.MODEL.MGM.SCALE_KEYS = ["res2","res3","res4","res5"]
+    cfg.MODEL.MGM.POST_FUSE_NORM = True
+    
+    # MGM 归一化方法配置
+    cfg.MODEL.MGM.ROBUST_NORM = CN()
+    cfg.MODEL.MGM.ROBUST_NORM.ENABLED = False
+    cfg.MODEL.MGM.ROBUST_NORM.METHOD  = "minmax"  # or "quantile"
 
-    # 深度先验参数配置
+    # MGM 深度先验参数配置
     cfg.MODEL.MGM.PRIOR = CN()
+    cfg.MODEL.MGM.PRIOR.ENABLED = True
+    cfg.MODEL.MGM.PRIOR.USE_GRADIENT   = True
+    cfg.MODEL.MGM.PRIOR.USE_VARIANCE   = True
+    cfg.MODEL.MGM.PRIOR.USE_VALID_HOLE = True
+    cfg.MODEL.MGM.PRIOR.USE_RGB_EDGE   = False
     cfg.MODEL.MGM.PRIOR.VAR_KERNEL = 5
     cfg.MODEL.MGM.PRIOR.Z_MIN = 0.0
     cfg.MODEL.MGM.PRIOR.Z_MAX = 1.0
-    cfg.MODEL.MGM.PRIOR.USE_RGB_EDGE = True
-
-    # 是否用分位数归一化（关掉可提速）
-    cfg.MODEL.MGM.ROBUST_NORM = True
+    cfg.MODEL.MGM.PRIOR.COMPUTE_ON = "res3"   # "full"/"res2"/"res3"/"res4"/"res5"
 
     # -------------------------
     # 输入数据配置（RGB-D 专用）
