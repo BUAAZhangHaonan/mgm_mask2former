@@ -19,7 +19,7 @@ git config --global user.email "YOUR_EMAIL"
 ### Username and Password
 
 Username: BUAAZhangHaonan
-Password: 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
+Password: ......
 
 ### 关联github仓库
 
