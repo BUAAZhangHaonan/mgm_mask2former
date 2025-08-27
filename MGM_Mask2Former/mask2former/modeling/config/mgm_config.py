@@ -119,13 +119,19 @@ def add_mgm_config(cfg: CN):
     cfg.MODEL.MGM.CLAMP_MIN = 0.05
     cfg.MODEL.MGM.CLAMP_MAX = 0.95
     cfg.MODEL.MGM.NOISE_MASK_WEIGHT = 0.1
+    cfg.MODEL.MGM.HIDDEN_DIM = 128
+    cfg.MODEL.MGM.FEATURE_DIMS = [96, 192, 384, 768]
+    cfg.MODEL.MGM.SCALE_KEYS = ["res2","res3","res4","res5"]
 
+    # 深度先验参数配置
+    cfg.MODEL.MGM.PRIOR = CN()
+    cfg.MODEL.MGM.PRIOR.VAR_KERNEL = 5
+    cfg.MODEL.MGM.PRIOR.Z_MIN = 0.0
+    cfg.MODEL.MGM.PRIOR.Z_MAX = 1.0
+    cfg.MODEL.MGM.PRIOR.USE_RGB_EDGE = True
 
-    cfg.MODEL.DPE = CN()
-    cfg.MODEL.DPE.ENABLED = True
-
-    cfg.MODEL.BOUNDARY = CN()
-    cfg.MODEL.BOUNDARY.ENABLED = False
+    # 是否用分位数归一化（关掉可提速）
+    cfg.MODEL.MGM.ROBUST_NORM = True
 
     # -------------------------
     # 输入数据配置（RGB-D 专用）
