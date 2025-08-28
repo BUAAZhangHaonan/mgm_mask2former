@@ -24,7 +24,7 @@ def add_mgm_config(cfg: CN):
     cfg.MODEL.MASK_FORMER.NO_OBJECT_WEIGHT = 0.1
     cfg.MODEL.MASK_FORMER.CLASS_WEIGHT = 1.0
     cfg.MODEL.MASK_FORMER.DICE_WEIGHT = 1.0
-    cfg.MODEL.MASK_FORMER.MASK_WEIGHT = 20.0
+    cfg.MODEL.MASK_FORMER.MASK_WEIGHT = 5.0
     cfg.MODEL.MASK_FORMER.NHEADS = 8
     cfg.MODEL.MASK_FORMER.DROPOUT = 0.1
     cfg.MODEL.MASK_FORMER.DIM_FEEDFORWARD = 2048
@@ -112,7 +112,6 @@ def add_mgm_config(cfg: CN):
     cfg.MODEL.MGM.SHARED = True
     cfg.MODEL.MGM.RESIDUAL_ALPHA = 0.05
     cfg.MODEL.MGM.LOSS_ENTROPY_W = 0.01
-    cfg.MODEL.MGM.LOSS_VAR_W = 0.01
     cfg.MODEL.MGM.TEMP_INIT = 1.5
     cfg.MODEL.MGM.TEMP_FINAL = 1.0
     cfg.MODEL.MGM.TEMP_STEPS = 3000
@@ -144,6 +143,10 @@ def add_mgm_config(cfg: CN):
     # -------------------------
     # 输入数据配置（RGB-D 专用）
     # -------------------------
+
+    # 数据集根目录
+    cfg.INPUT.DATASET_ROOT = None #在训练脚本入口指定
+
     # LSJ 几何增强（RGB & Depth 同步）
     cfg.INPUT.IMAGE_SIZE = 1024
     cfg.INPUT.MIN_SCALE = 0.1

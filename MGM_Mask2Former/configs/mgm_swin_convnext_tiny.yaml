@@ -33,7 +33,6 @@ MODEL:
     RESIDUAL_ALPHA: 0.05
     POST_FUSE_NORM: True              # 新增：融合后GN
     LOSS_ENTROPY_W: 0.01
-    LOSS_VAR_W: 0.01
     TEMP_INIT: 1.5
     TEMP_FINAL: 1.0
     TEMP_STEPS: 3000                  # 建议略短，收敛更快

@@ -1,94 +1,45 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
-# RGB-D COCO dataset registration
+# RGB-D COCO dataset registration (minimal; mapper will locate depth/noise by DATASET_ROOT)
 import os
-from detectron2.data import DatasetCatalog, MetadataCatalog
-from detectron2.data.datasets.coco import load_coco_json
-from detectron2.data.datasets.builtin_meta import _get_builtin_metadata
+from detectron2.data.datasets import register_coco_instances
+from detectron2.data import MetadataCatalog
 
-__all__ = ["register_coco_rgbd_instances", "load_coco_rgbd_json"]
+__all__ = ["register_all_coco_rgbd"]
 
+# 你固定的数据集结构：
+# DATASET_ROOT/
+#   annotations/instances_{train,val,test}.json
+#   images/{train,val,test}/...png
+#   depth/
+#     depth_npy/{train,val,test}/...npy(.npz)                # 同名
+#     depth_noise_mask/{train,val,test}/...{png/jpg/npy}     # 同名（二值）
 
-def load_coco_rgbd_json(json_file, image_root, depth_root, dataset_name=None, extra_annotation_keys=None):
+def register_all_coco_rgbd(dataset_root: str,
+                           prefix: str = "coco_instance_rgbd"):
     """
-    Load a COCO-format dataset with RGB and depth images.
-    
-    Args:
-        json_file (str): path to the json file in COCO instances format.
-        image_root (str): directory that contains all RGB images.
-        depth_root (str): directory that contains all depth images.
-        dataset_name (str or None): the name of the dataset (e.g., "coco_2017_train_rgbd").
-        extra_annotation_keys (list[str]): list of per-annotation keys that should also be
-            loaded into the dataset dict (besides "iscrowd", "bbox", "keypoints",
-            "category_id", "segmentation"). The values for these keys will be returned as-is.
-
-    Returns:
-        list[dict]: a list of dicts in Detectron2 standard dataset dict format (See DATASETS.md).
+    只做一件事：把 COCO json + images/<split> 注册到 Detectron2。
+    深度与噪声掩码路径完全由 mapper 按 DATASET_ROOT 自动匹配。
     """
-    dataset_dicts = load_coco_json(json_file, image_root, dataset_name, extra_annotation_keys)
-    
-    # Add depth file paths to each dataset dict
-    for dataset_dict in dataset_dicts:
-        rgb_name = os.path.basename(dataset_dict["file_name"])
-        name, _ = os.path.splitext(rgb_name)
-        depth_name = f"{name}_depth.npy"
-        dataset_dict["depth_file_name"] = os.path.join(depth_root, depth_name)
-    
-    return dataset_dicts
+    assert os.path.isdir(dataset_root), f"Invalid DATASET_ROOT: {dataset_root}"
 
+    splits = {
+        "train": ("annotations/instances_train.json", "images/train"),
+        "val":   ("annotations/instances_val.json",   "images/val"),
+        "test":  ("annotations/instances_test.json",  "images/test"),
+    }
 
-def register_coco_rgbd_instances(name, metadata, json_file, image_root, depth_root):
-    """
-    Register a dataset in COCO's json annotation format for RGB-D instance detection/segmentation.
-    
-    This is compatible with the standard detectron2 registration mechanism.
-    
-    Args:
-        name (str): the name that identifies a dataset, e.g. "coco_2017_train_rgbd".
-        metadata (dict): extra metadata associated with this dataset.
-        json_file (str): path to the json instance annotation file.
-        image_root (str): directory which contains all RGB images.
-        depth_root (str): directory which contains all depth images.
-    """
-    assert isinstance(name, str), f"Dataset name must be a string, got {type(name)}"
-    assert isinstance(metadata, dict), f"Metadata must be a dict, got {type(metadata)}"
-    
-    # Register the dataset
-    DatasetCatalog.register(name, lambda: load_coco_rgbd_json(json_file, image_root, depth_root, name))
-    MetadataCatalog.get(name).set(
-        json_file=json_file, 
-        image_root=image_root, 
-        depth_root=depth_root,
-        evaluator_type="coco", 
-        **metadata
-    )
+    for split, (ann_rel, img_rel) in splits.items():
+        json_file = os.path.join(dataset_root, ann_rel)
+        image_root = os.path.join(dataset_root, img_rel)
+        name = f"{prefix}_{split}"
 
+        register_coco_instances(name, {}, json_file, image_root)
 
-# Predefined splits for RGB-D COCO datasets
-# You can uncomment and modify these based on your dataset structure
-_PREDEFINED_SPLITS_COCO_RGBD = {
-    "coco_instance_train_rgbd": ("coco/train", "coco/depth_train", "coco/annotations/instances_train.json"),
-    "coco_instance_val_rgbd":   ("coco/val",   "coco/depth_val",   "coco/annotations/instances_val.json"),
-}
-
-
-def register_all_coco_rgbd(root):
-    """
-    Register all RGB-D COCO datasets.
-    
-    Args:
-        root (str): the root directory that contains COCO datasets.
-    """
-    for dataset_name, (image_dirname, depth_dirname, json_filename) in _PREDEFINED_SPLITS_COCO_RGBD.items():
-        register_coco_rgbd_instances(
-            dataset_name,
-            _get_builtin_metadata("coco"),
-            os.path.join(root, json_filename) if "://" not in json_filename else json_filename,
-            os.path.join(root, image_dirname),
-            os.path.join(root, depth_dirname),
+        # 可选：把 DATASET_ROOT 也挂到元数据里（便于调试/可视化时取用）
+        MetadataCatalog.get(name).set(
+            evaluator_type="coco",
+            dataset_root=dataset_root,
         )
 
+    print(f"[register_all_coco_rgbd] Registered splits under prefix '{prefix}' at {dataset_root}")
 
-# Automatically register predefined RGB-D datasets if they are defined
-if _PREDEFINED_SPLITS_COCO_RGBD:
-    _root = os.getenv("DETECTRON2_DATASETS", "datasets") 
-    register_all_coco_rgbd(_root)
