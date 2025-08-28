@@ -12,7 +12,6 @@ from detectron2.data import transforms as T
 from detectron2.structures import Boxes
 
 
-
 __all__ = ["COCOInstanceRGBDDatasetMapper"]
 
 

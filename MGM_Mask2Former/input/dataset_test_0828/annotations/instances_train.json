@@ -1,0 +1,18 @@
+{
+  "info": {
+    "description": "Electronics (COCO instance, component-only)",
+    "version": "1.0",
+    "year": 2025,
+    "date_created": "2025-08-28T13:02:38.788435"
+  },
+  "licenses": [],
+  "images": [],
+  "annotations": [],
+  "categories": [
+    {
+      "id": 1,
+      "name": "component",
+      "supercategory": "component"
+    }
+  ]
+}

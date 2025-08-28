@@ -1,4 +1,3 @@
-_BASE_: Base-COCO-MGM-InstanceSegmentation.yaml
 MODEL:
   META_ARCHITECTURE: "MGMMaskFormer"
 
@@ -19,7 +18,7 @@ MODEL:
   # Depth Backbone: ConvNeXt Tiny
   DEPTH_BACKBONE:
     NAME: "ConvNeXtDepthBackbone"
-    WEIGHTS: "convnext_tiny_depth_22k_converted.pth"
+    WEIGHTS: ""
     CONVNEXT:
       DEPTHS: [3, 3, 9, 3]
       DIMS: [96, 192, 384, 768]
@@ -130,6 +129,7 @@ DATALOADER:
 
 # RGB-D Input Configuration
 INPUT:
+  DATASET_ROOT: "/home/fuyx/zhn/mask2former/MGM_Mask2Former/input/dataset_test_0828"
   IMAGE_SIZE: 1024
   MIN_SCALE: 0.1
   MAX_SCALE: 2.0
@@ -188,3 +188,6 @@ TEST:
 
 # 输出配置
 OUTPUT_DIR: "./output"
+
+# 版本号
+VERSION: 2.0

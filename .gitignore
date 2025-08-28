@@ -13,4 +13,14 @@
 *.pth
 *.pt
 
+.idea
+.vscode
+
+mgm_test_input
+mgm_test_output_random
+mgm_test_output_real
+
+MGM_Mask2Former/input
+MGM_Mask2Former/output
+
 __pycache__

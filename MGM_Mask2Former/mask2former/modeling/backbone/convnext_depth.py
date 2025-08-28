@@ -1,8 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 from timm.layers.weight_init import trunc_normal_
 from timm.layers.drop import DropPath
+
 from detectron2.modeling.backbone import Backbone
 from detectron2.layers.shape_spec import ShapeSpec
 from detectron2.modeling import BACKBONE_REGISTRY
@@ -71,11 +73,11 @@ class ConvNeXtDepthBackbone(Backbone):
 
         # Get config values
         if cfg is not None and hasattr(cfg.MODEL, "DEPTH_BACKBONE"):
-            depth_cfg = cfg.MODEL.DEPTH_BACKBONE
+            depth_cfg = cfg.MODEL.DEPTH_BACKBONE.CONVNEXT
             in_chans = 1  # Depth is single channel
             depths = list(depth_cfg.DEPTHS)
             dims = list(depth_cfg.DIMS)
-            drop_path_rate = float(depth_cfg.DROP_PATH)
+            drop_path_rate = float(depth_cfg.DROP_PATH_RATE)
             layer_scale_init_value = float(depth_cfg.LAYER_SCALE)
         else:
             # Default values

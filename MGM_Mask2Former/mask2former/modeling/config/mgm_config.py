@@ -76,6 +76,7 @@ def add_mgm_config(cfg: CN):
     cfg.MODEL.RGB_BACKBONE = CN()
     cfg.MODEL.RGB_BACKBONE.NAME = "D2SwinTransformer"
     cfg.MODEL.RGB_BACKBONE.WEIGHTS = ""
+    cfg.MODEL.RGB_BACKBONE.SWIN = CN()
     cfg.MODEL.RGB_BACKBONE.SWIN.PRETRAIN_IMG_SIZE = 224
     cfg.MODEL.RGB_BACKBONE.SWIN.PATCH_SIZE = 4
     cfg.MODEL.RGB_BACKBONE.SWIN.EMBED_DIM = 96
@@ -99,14 +100,19 @@ def add_mgm_config(cfg: CN):
     cfg.MODEL.DEPTH_BACKBONE = CN()
     cfg.MODEL.DEPTH_BACKBONE.NAME = "ConvNeXtDepthBackbone"
     cfg.MODEL.DEPTH_BACKBONE.WEIGHTS = ""
+    cfg.MODEL.DEPTH_BACKBONE.CONVNEXT = CN()
     cfg.MODEL.DEPTH_BACKBONE.CONVNEXT.DEPTHS = [3, 3, 9, 3]
     cfg.MODEL.DEPTH_BACKBONE.CONVNEXT.DIMS = [96, 192, 384, 768]
-    cfg.MODEL.DEPTH_BACKBONE.CONVNEXT.DROP_PATH = 0.0
+    cfg.MODEL.DEPTH_BACKBONE.CONVNEXT.DROP_PATH_RATE = 0.0
     cfg.MODEL.DEPTH_BACKBONE.CONVNEXT.LAYER_SCALE = 1e-6
 
     # -------------------------
     # MGM / DPE / 边界分支配置
     # -------------------------
+    cfg.MODEL.DPE = CN()
+    cfg.MODEL.DPE.ENABLED = True
+    cfg.MODEL.BOUNDARY = CN()
+    cfg.MODEL.BOUNDARY.ENABLED = False
     cfg.MODEL.MGM = CN()
     cfg.MODEL.MGM.ENABLED = True
     cfg.MODEL.MGM.SHARED = True
@@ -139,6 +145,10 @@ def add_mgm_config(cfg: CN):
     cfg.MODEL.MGM.PRIOR.Z_MIN = 0.0
     cfg.MODEL.MGM.PRIOR.Z_MAX = 1.0
     cfg.MODEL.MGM.PRIOR.COMPUTE_ON = "res3"   # "full"/"res2"/"res3"/"res4"/"res5"
+
+    # RGB Input Pixel Mean/Std
+    cfg.MODEL.PIXEL_MEAN = [123.675, 116.280, 103.530]
+    cfg.MODEL.PIXEL_STD = [58.395, 57.120, 57.375]
 
     # -------------------------
     # 输入数据配置（RGB-D 专用）
@@ -214,3 +224,5 @@ def add_mgm_config(cfg: CN):
             400, 500, 600, 640, 700, 900, 1000, 1100, 1200, 1300, 1400, 1800, 800)
         cfg.TEST.AUG.MAX_SIZE = 4000
         cfg.TEST.AUG.FLIP = True
+        
+    cfg.VERSION = 2.0

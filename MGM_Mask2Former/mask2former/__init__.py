@@ -19,6 +19,9 @@ from .data.dataset_mappers.coco_instance_rgbd_dataset_mapper import COCOInstance
 from .modeling.meta_arch.maskformer_model import MaskFormer
 # RGB-D
 from .modeling.meta_arch.mgm_model import MGMMaskFormer
+from .modeling.mgm import MultiModalGatedFusion
+from .modeling.mgm import build_mgm
+
 # RGB
 from .utils.test_time_augmentation import SemanticSegmentorWithTTA
 
