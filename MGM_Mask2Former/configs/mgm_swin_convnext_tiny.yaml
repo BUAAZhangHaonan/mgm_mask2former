@@ -45,7 +45,7 @@ MODEL:
     PRIOR:
       ENABLED: True                   # 总开关
       USE_GRADIENT: True              # 先验逐项开关
-      USE_VARIANCE: True
+      USE_VARIANCE: False
       USE_VALID_HOLE: True
       USE_RGB_EDGE: False             # 前期建议关（最耗时）
       VAR_KERNEL: 5
