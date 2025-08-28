@@ -201,12 +201,17 @@ class ConfidencePredictor(nn.Module):
             ]
         )
 
-        # 最多 5 个先验通道（grad/var/valid/hole/edge）
-        self.proj_prior = nn.Sequential(
-            nn.Conv2d(prior_in_channels, self.hidden, 1, bias=False),
-            nn.GroupNorm(16, self.hidden),
-            nn.GELU(),
-        )
+        # 动态先验通道：若为0则跳过先验投影并在 forward 中用零张量占位
+        if prior_in_channels > 0:
+            self.proj_prior = nn.Sequential(
+                nn.Conv2d(prior_in_channels, self.hidden, 1, bias=False),
+                nn.GroupNorm(16, self.hidden),
+                nn.GELU(),
+            )
+            self._prior_channels = prior_in_channels
+        else:
+            self.proj_prior = None
+            self._prior_channels = 0
 
         # 共享置信度 head
         self.head = nn.Sequential(
@@ -230,13 +235,15 @@ class ConfidencePredictor(nn.Module):
         priors_ms: Dict[str, Dict[str, torch.Tensor]],
     ) -> Dict[str, torch.Tensor]:
         """
-        返回：每尺度的 m（置信度图），键与 scale_keys 对齐
+        priors_ms 现在支持动态格式：
+          - 每尺度字典含 'stack': 已拼接好的先验 [B,Cp,H,W]
+          - 或者包含若干原子键（gradient / variance / valid / hole / edge_consistency 的任意子集）
+          - 若缺失 / None / 空：用零先验（与 image/depth 投影通道对齐）
         """
         m_maps: Dict[str, torch.Tensor] = {}
 
         for i, key in enumerate(self.scale_keys):
             if key not in image_features or key not in depth_features:
-                # 缺失任何一侧特征则跳过（外侧做 RGB-only 回退）
                 continue
 
             img = image_features[key]
@@ -245,28 +252,44 @@ class ConfidencePredictor(nn.Module):
                 img.shape[2:] == dep.shape[2:]
             ), f"[MGM] {key} 空间尺寸不一致: {img.shape} vs {dep.shape}"
 
-            # 投影
             img_p = self.proj_image[i](img)
             dep_p = self.proj_depth[i](dep)
 
-            # 堆叠先验（固定 5 个通道）
-            pri = priors_ms[key]
-            prior_stack = torch.cat(
-                [
-                    pri["gradient"],
-                    pri["variance"],
-                    pri["valid"],
-                    pri["hole"],
-                    pri["edge_consistency"],
-                ],
-                dim=1,
-            )
-            pri_p = self.proj_prior(prior_stack)
+            # ----- 动态先验处理 -----
+            prior_dict = priors_ms.get(key, None) if priors_ms is not None else None
+            prior_stack = None
+            if prior_dict:
+                if "stack" in prior_dict:
+                    prior_stack = prior_dict["stack"]
+                else:
+                    # 收集可能存在的键（忽略缺失）
+                    collect = []
+                    for k2 in (
+                        "gradient",
+                        "variance",
+                        "valid",
+                        "hole",
+                        "edge_consistency",
+                    ):
+                        v = prior_dict.get(k2, None)
+                        if v is not None:
+                            collect.append(v)
+                    if len(collect) > 0:
+                        prior_stack = torch.cat(collect, dim=1)
+            # 若没有任何先验或初始化时没有先验通道
+            if prior_stack is None or self._prior_channels == 0:
+                # 生成零占位（保持维度一致，便于后续拼接）
+                pri_p = torch.zeros_like(img_p)
+            else:
+                # 运行时动态通道数需要与初始化 conv 的 in_channels 匹配
+                if prior_stack.shape[1] != self._prior_channels:
+                    raise RuntimeError(
+                        f"[MGM] 运行时先验通道数 {prior_stack.shape[1]} 与初始化的 {self._prior_channels} 不匹配"
+                    )
+                pri_p = self.proj_prior(prior_stack)
 
             x = torch.cat([img_p, dep_p, pri_p], dim=1)
             logits = self.head(x)
-
-            # 温度控制 + 夹紧
             m = torch.sigmoid(logits / (self.temp + 1e-6))
             m_maps[key] = m.clamp(self.clamp_min, self.clamp_max)
 
@@ -277,7 +300,7 @@ class MultiModalGatedFusion(nn.Module):
     """
     MGM 多模态门控融合（早期融合版本）：
     - 对每个尺度生成置信度 m
-    - 采用 gated 残差融合: fused = m*Depth + (1-m)*Image + α*Image
+    - 采用 gated 残差融合: fused = m * Depth + (1 - m) * Image + alpha * Image
     - 训练时提供三种正则/监督：
         * 置信度熵（鼓励 m 远离 0.5）
         * 空间方差（鼓励 m 非全常数）
@@ -312,7 +335,7 @@ class MultiModalGatedFusion(nn.Module):
         robust_norm: bool = False,
         robust_norm_method: str = "minmax",
         prior_compute_on: str = "full",  # "full"|"res2"|"res3"|"res4"|"res5"
-        post_fuse_norm: bool = True
+        post_fuse_norm: bool = True,
     ) -> None:
         super().__init__()
 
@@ -502,7 +525,9 @@ class MultiModalGatedFusion(nn.Module):
         rgb_image: Optional[torch.Tensor] = None,
         depth_noise_mask: Optional[torch.Tensor] = None,
         is_training: bool = True,
-    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+    ) -> Tuple[
+        Dict[str, torch.Tensor], Dict[str, torch.Tensor], Dict[str, torch.Tensor]
+    ]:
         """
         输入:
         - image_features: 多尺度 RGB 特征，键与 scale_keys 对齐
@@ -550,7 +575,9 @@ class MultiModalGatedFusion(nn.Module):
                         dct["hole"] = torch.zeros_like(dct["hole"])
                 if "edge_consistency" in dct:
                     if not prior_use_rgb_edge:
-                        dct["edge_consistency"] = torch.zeros_like(dct["edge_consistency"])
+                        dct["edge_consistency"] = torch.zeros_like(
+                            dct["edge_consistency"]
+                        )
         else:
             # 完全禁用先验：构造一个“全零先验”的空字典，供 Predictor 兼容（仍然会走5通道接口，但无需计算）
             priors_ms = {}
@@ -633,7 +660,11 @@ class MultiModalGatedFusion(nn.Module):
 
             # (c) 噪声掩码弱监督（可选）：1=噪声 => 期望 m 低 ⇒ 目标 t=1-noise
             nmw = getattr(self, "noise_mask_weight", 0.0)
-            if nmw > 0.0 and depth_noise_mask is not None and depth_noise_mask.numel() > 0:
+            if (
+                nmw > 0.0
+                and depth_noise_mask is not None
+                and depth_noise_mask.numel() > 0
+            ):
                 with torch.no_grad():
                     depth_noise_mask = depth_noise_mask.float()
                 bces = []

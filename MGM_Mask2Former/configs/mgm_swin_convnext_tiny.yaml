@@ -27,38 +27,37 @@ MODEL:
       LAYER_SCALE: 1e-6
 
   # MGM Fusion Configuration
-  MODEL:
-    MGM:
-      ENABLED: True
-      SHARED: True
-      RESIDUAL_ALPHA: 0.05
-      POST_FUSE_NORM: True              # 新增：融合后GN
-      LOSS_ENTROPY_W: 0.01
-      LOSS_VAR_W: 0.01
-      TEMP_INIT: 1.5
-      TEMP_FINAL: 1.0
-      TEMP_STEPS: 3000                  # 建议略短，收敛更快
-      CLAMP_MIN: 0.05
-      CLAMP_MAX: 0.95
-      NOISE_MASK_WEIGHT: 0.0            # 前期建议关；有噪声掩码再开到0.05~0.1
-      HIDDEN_DIM: 128
-      FEATURE_DIMS: [96, 192, 384, 768]
-      SCALE_KEYS: ["res2", "res3", "res4", "res5"]
+  MGM:
+    ENABLED: True
+    SHARED: True
+    RESIDUAL_ALPHA: 0.05
+    POST_FUSE_NORM: True              # 新增：融合后GN
+    LOSS_ENTROPY_W: 0.01
+    LOSS_VAR_W: 0.01
+    TEMP_INIT: 1.5
+    TEMP_FINAL: 1.0
+    TEMP_STEPS: 3000                  # 建议略短，收敛更快
+    CLAMP_MIN: 0.05
+    CLAMP_MAX: 0.95
+    NOISE_MASK_WEIGHT: 0.0            # 前期建议关；有噪声掩码再开到0.05~0.1
+    HIDDEN_DIM: 128
+    FEATURE_DIMS: [96, 192, 384, 768]
+    SCALE_KEYS: ["res2", "res3", "res4", "res5"]
 
-      PRIOR:
-        ENABLED: True                   # 总开关
-        USE_GRADIENT: True              # 先验逐项开关
-        USE_VARIANCE: True
-        USE_VALID_HOLE: True
-        USE_RGB_EDGE: False             # 前期建议关（最耗时）
-        VAR_KERNEL: 5
-        Z_MIN: 0.0
-        Z_MAX: 1.0
-        COMPUTE_ON: "res3"              # "full"|"res2"|"res3"|"res4"|"res5"；前期建议用res3提速
+    PRIOR:
+      ENABLED: True                   # 总开关
+      USE_GRADIENT: True              # 先验逐项开关
+      USE_VARIANCE: True
+      USE_VALID_HOLE: True
+      USE_RGB_EDGE: False             # 前期建议关（最耗时）
+      VAR_KERNEL: 5
+      Z_MIN: 0.0
+      Z_MAX: 1.0
+      COMPUTE_ON: "res3"              # "full"|"res2"|"res3"|"res4"|"res5"；前期建议用res3提速
 
-      ROBUST_NORM:
-        ENABLED: False                  # 前期建议关；要稳健再开
-        METHOD: "minmax"                # "minmax"|"quantile"
+    ROBUST_NORM:
+      ENABLED: False                  # 前期建议关；要稳健再开
+      METHOD: "minmax"                # "minmax"|"quantile"
 
 
   # DPE Configuration
