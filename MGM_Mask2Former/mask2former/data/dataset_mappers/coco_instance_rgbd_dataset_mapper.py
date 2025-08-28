@@ -11,7 +11,6 @@ from detectron2.data import detection_utils as utils
 from detectron2.data import transforms as T
 from detectron2.structures import Boxes
 
-from mask2former.modeling.config import add_mgm_config
 
 
 __all__ = ["COCOInstanceRGBDDatasetMapper"]
@@ -169,7 +168,7 @@ def _read_noise_mask_any(path: str) -> np.ndarray:
     # 图像：取 L 通道并二值化
     m = utils.read_image(path, format="L").astype(np.float32) / 255.0
     m = (m > 0.5).astype(np.float32)
-    return m  # HxWx1
+    return m[..., None]  # HxWx1
 
 
 def _relpath_under_images(rgb_abs_path: str, dataset_root: str) -> str:
@@ -344,7 +343,7 @@ class COCOInstanceRGBDDatasetMapper:
             )  # [1,H,W]
 
         # padding mask（True 表示 padding 区域）
-        padding_mask = np.ones(image.shape[:2], dtype=np.float32)
+        padding_mask = np.ones(image.shape[:2], dtype=np.uint8)
         padding_mask = transforms.apply_segmentation(padding_mask)
         padding_mask = ~padding_mask.astype(bool)
 
