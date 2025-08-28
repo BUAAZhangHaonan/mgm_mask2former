@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Dict, List, Optional, Tuple
+import logging
 
 from detectron2.config import configurable
 
@@ -50,40 +51,46 @@ class DepthPriorExtractor(nn.Module):
     def _robust_norm(self, x: torch.Tensor) -> torch.Tensor:
         """
         归一化到[0,1]，逐样本独立；默认用 min-max（快且稳定）。
-        若选择 'quantile'，会更鲁棒但明显更慢。
+        在 AMP 下：
+        - quantile 统计对半精度不稳定 -> 统一转 float32 计算后再 cast 回原 dtype
         """
         B = x.shape[0]
         x_flat = x.view(B, -1)
 
         if self.robust_norm and self.robust_norm_method == "quantile":
-            p95 = torch.quantile(x_flat, 0.95, dim=1, keepdim=True)
-            p05 = torch.quantile(x_flat, 0.05, dim=1, keepdim=True)
-            norm_flat = (x_flat - p05) / (p95 - p05 + 1e-6)
+            x_flat_f32 = x_flat.float()
+            p95 = torch.quantile(x_flat_f32, 0.95, dim=1, keepdim=True)
+            p05 = torch.quantile(x_flat_f32, 0.05, dim=1, keepdim=True)
+            norm_flat = (x_flat_f32 - p05) / (p95 - p05 + 1e-6)
+            norm_flat = norm_flat.clamp_(0, 1).to(x.dtype)
         else:
             mn = x_flat.min(dim=1, keepdim=True).values
             mx = x_flat.max(dim=1, keepdim=True).values
             norm_flat = (x_flat - mn) / (mx - mn + 1e-6)
+            norm_flat = norm_flat.clamp_(0, 1)
 
-        return norm_flat.clamp_(0, 1).view_as(x)
+        return norm_flat.view_as(x)
 
     @torch.no_grad()
-    def _compute_grad(self, x1: torch.Tensor) -> torch.Tensor:
-        x_pad = F.pad(x1, (1, 1, 1, 1), mode="replicate")
-        gx = F.conv2d(x_pad, self.sobel_x, stride=1, padding=0)
-        gy = F.conv2d(x_pad, self.sobel_y, stride=1, padding=0)
+    def _compute_grad(self, x: torch.Tensor) -> torch.Tensor:
+        x_pad = F.pad(x, (1, 1, 1, 1), mode="replicate")
+        w_x = self.sobel_x.to(x_pad.dtype)
+        w_y = self.sobel_y.to(x_pad.dtype)
+        gx = F.conv2d(x_pad, w_x, stride=1, padding=0)
+        gy = F.conv2d(x_pad, w_y, stride=1, padding=0)
         g = torch.sqrt(gx**2 + gy**2 + 1e-6)
         return self._robust_norm(g)
 
     @torch.no_grad()
-    def _compute_var(self, x1: torch.Tensor) -> torch.Tensor:
+    def _compute_var(self, x: torch.Tensor) -> torch.Tensor:
         k = self.k
         pad = k // 2
         mu = F.avg_pool2d(
-            x1, kernel_size=k, stride=1, padding=pad, count_include_pad=False
+            x, kernel_size=k, stride=1, padding=pad, count_include_pad=False
         )
         var = (
             F.avg_pool2d(
-                x1**2, kernel_size=k, stride=1, padding=pad, count_include_pad=False
+                x**2, kernel_size=k, stride=1, padding=pad, count_include_pad=False
             )
             - mu**2
         )
@@ -91,10 +98,10 @@ class DepthPriorExtractor(nn.Module):
         return self._robust_norm(var)
 
     @torch.no_grad()
-    def _valid_and_hole(self, d1: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _valid_and_hole(self, d: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         # Using strict inequality assumes invalid/saturated depths are exactly 0.0 or 1.0.
         # This is generally a safe and robust assumption for normalized depth maps.
-        valid = ((d1 > self.z_min) & (d1 < self.z_max)).float()
+        valid = ((d > self.z_min) & (d < self.z_max)).float()
         hole = 1.0 - valid
         return valid, hole
 
@@ -109,7 +116,7 @@ class DepthPriorExtractor(nn.Module):
         else:
             gray = rgb[:, :1]
 
-        if gray.max() > 1.001:
+        if gray.max() > 1.0:
             gray = gray / 255.0
 
         g_rgb = self._compute_grad(gray)
@@ -148,6 +155,11 @@ class ConfidencePredictor(nn.Module):
         self.hidden = int(hidden_dim)
         self.clamp_min = float(clamp_min)
         self.clamp_max = float(clamp_max)
+
+        assert len(feature_dims) == len(
+            scale_keys
+        ), "Feature dimensions and scale keys must match."
+        assert hidden_dim % 16 == 0, "hidden_dim must be divisible by 16"
 
         self.register_buffer(
             "temp", torch.tensor(float(temp_init), dtype=torch.float32)
@@ -365,10 +377,18 @@ class MultiModalGatedFusion(nn.Module):
         }
 
     def _update_temperature(self) -> None:
-        if self.training and self._cur_step <= self.temp_steps and self.temp_steps > 0:
-            p = float(self._cur_step) / float(self.temp_steps)
-            t = self.temp_init + (self.temp_final - self.temp_init) * p
-            self.conf_pred.set_temperature(t)
+        """
+        在每个训练步骤中更新状态并应用温度调度。
+        """
+        # 行为守卫：只在训练模式下执行任何操作
+        if self.training:
+            # 逻辑判断：仅在退火阶段根据当前步数计算和设置温度
+            if self._cur_step <= self.temp_steps and self.temp_steps > 0:
+                p = float(self._cur_step) / float(self.temp_steps)
+                t = self.temp_init + (self.temp_final - self.temp_init) * p
+                self.conf_pred.set_temperature(t)
+
+            # 状态更新：无论是否在退火阶段，只要是训练，步数计数器就必须增加
             self._cur_step += 1
 
     def _prepare_priors_ms(
@@ -378,10 +398,10 @@ class MultiModalGatedFusion(nn.Module):
         target_sizes: Dict[str, Tuple[int, int]],
         override_compute_on: Optional[str] = None,
     ) -> Dict[str, Dict[str, torch.Tensor]]:
-        
+
         if not self.prior_enabled:
             return {}
-        
+
         # 若 forward 已经提供 override，则优先；否则沿用 self.prior_compute_on
         base_compute_on = (
             self.prior_compute_on
@@ -437,10 +457,11 @@ class MultiModalGatedFusion(nn.Module):
             and self.prior_compute_on not in target_sizes
         ):
             if not self._prior_missing_warned:
-                print(
+                logger = logging.getLogger(__name__)
+                logger.warning(
                     f"[MGM] prior_compute_on='{self.prior_compute_on}' not present in this batch features. Fallback to 'full'."
                 )
-                self._prior_missing_warned = True
+            self._prior_missing_warned = True
             effective_prior_compute_on = "full"
 
         priors_ms = self._prepare_priors_ms(
@@ -497,7 +518,12 @@ class MultiModalGatedFusion(nn.Module):
         if self.training and m_maps:
             if self.loss_entropy_weight > 0:
                 ent_terms = [
-                    F.binary_cross_entropy(m, m.detach()) for m in m_maps.values()
+                    -(
+                        m.clamp(1e-6, 1.0 - 1e-6) * torch.log(m.clamp(1e-6, 1.0 - 1e-6))
+                        + (1.0 - m.clamp(1e-6, 1.0 - 1e-6))
+                        * torch.log(1.0 - m.clamp(1e-6, 1.0 - 1e-6))
+                    ).mean()
+                    for m in m_maps.values()
                 ]
                 losses["loss_mgm_entropy"] = (
                     self.loss_entropy_weight * torch.stack(ent_terms).mean()
