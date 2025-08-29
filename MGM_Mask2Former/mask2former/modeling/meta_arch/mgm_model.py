@@ -161,12 +161,12 @@ class MGMMaskFormer(nn.Module):
         depth_raw = depths.tensor
         depth_noise_mask = None
         if "depth_noise_mask" in batched_inputs[0]:
-            masks = [x["depth_noise_mask"].to(self.device).float()
-                    for x in batched_inputs]   # 形状变成 1×H×W
+            masks = [
+                x["depth_noise_mask"].to(self.device).float() for x in batched_inputs
+            ]  # 形状变成 1×H×W
             depth_noise_mask = ImageList.from_tensors(
                 masks, self.size_divisibility
             ).tensor
-
 
         # 统一自行构造 padding_mask，忽略外部传入
         B, _, H, W = images.tensor.shape
@@ -186,7 +186,6 @@ class MGMMaskFormer(nn.Module):
             depth_raw=depth_raw,
             rgb_image=images.tensor,
             depth_noise_mask=depth_noise_mask,
-            is_training=self.training,
         )
 
         # 传入新构造的 padding_mask
