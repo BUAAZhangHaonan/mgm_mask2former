@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) Facebook, Inc. and its affiliates.
-# Modified by MGM Authors
 import numpy as np
 from typing import Callable, Dict, List, Optional, Union
 import fvcore.nn.weight_init as weight_init

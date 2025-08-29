@@ -508,7 +508,9 @@ class MultiModalGatedFusion(nn.Module):
                 dep_a = dep_a * priors_ms[key]["valid"]
 
             fused_base = m * dep_a + (1.0 - m) * img_a
-            out = fused_base + self.residual_alpha * img_a
+            # out = fused_base + self.residual_alpha * img_a
+            # 严格无放大版残差
+            out = m * (dep_a + self.residual_alpha * img_a) + (1.0 - m) * img_a
 
             if self.post_norm:
                 out = self.post_norm[i](out)

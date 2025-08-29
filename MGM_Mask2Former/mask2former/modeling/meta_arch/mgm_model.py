@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) Facebook, Inc. and its affiliates.
-# Modified by MGM Authors
 from typing import Tuple
 
 import torch
@@ -163,10 +161,12 @@ class MGMMaskFormer(nn.Module):
         depth_raw = depths.tensor
         depth_noise_mask = None
         if "depth_noise_mask" in batched_inputs[0]:
-            masks = [x["depth_noise_mask"].to(self.device) for x in batched_inputs]
+            masks = [x["depth_noise_mask"].to(self.device).float()
+                    for x in batched_inputs]   # 形状变成 1×H×W
             depth_noise_mask = ImageList.from_tensors(
                 masks, self.size_divisibility
             ).tensor
+
 
         # 统一自行构造 padding_mask，忽略外部传入
         B, _, H, W = images.tensor.shape
@@ -204,11 +204,9 @@ class MGMMaskFormer(nn.Module):
             losses = self.criterion(outputs, targets)
             # MGM 原始损失 -> 加权后放入总 losses，不修改 mgm_losses 原始字典
             if "loss_mgm_entropy" in mgm_losses:
-                w = getattr(self.mgm, "loss_entropy_weight", 1.0)
-                losses["loss_mgm_entropy"] = mgm_losses["loss_mgm_entropy"] * w
+                losses["loss_mgm_entropy"] = mgm_losses["loss_mgm_entropy"]
             if "loss_mgm_noise" in mgm_losses:
-                w = getattr(self.mgm, "noise_mask_weight", 1.0)
-                losses["loss_mgm_noise"] = mgm_losses["loss_mgm_noise"] * w
+                losses["loss_mgm_noise"] = mgm_losses["loss_mgm_noise"]
             # 仅对 criterion 监督项应用 weight_dict
             for k in list(losses.keys()):
                 if k in self.criterion.weight_dict:

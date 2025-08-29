@@ -124,7 +124,7 @@ def add_mgm_config(cfg: CN):
     cfg.MODEL.MGM.CLAMP_MIN = 0.05
     cfg.MODEL.MGM.CLAMP_MAX = 0.95
     cfg.MODEL.MGM.NOISE_MASK_WEIGHT = 0.0
-    cfg.MODEL.MGM.HIDDEN_DIM = 128
+    cfg.MODEL.MGM.HIDDEN_DIM = 256
     cfg.MODEL.MGM.FEATURE_DIMS = [96, 192, 384, 768]
     cfg.MODEL.MGM.SCALE_KEYS = ["res2","res3","res4","res5"]
     cfg.MODEL.MGM.POST_FUSE_NORM = True

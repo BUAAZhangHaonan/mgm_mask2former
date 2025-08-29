@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) Facebook, Inc. and its affiliates.
-# Modified by MGM Authors
 import logging
 import fvcore.nn.weight_init as weight_init
 from typing import Optional, List

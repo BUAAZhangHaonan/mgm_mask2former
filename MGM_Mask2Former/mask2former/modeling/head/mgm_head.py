@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) Facebook, Inc. and its affiliates.
-# Modified by MGM Authors
 import logging
 from typing import Dict
 from torch import nn

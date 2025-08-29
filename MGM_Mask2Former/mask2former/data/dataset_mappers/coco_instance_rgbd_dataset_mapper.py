@@ -342,16 +342,14 @@ class COCOInstanceRGBDDatasetMapper:
             )  # [1,H,W]
 
         # padding mask（True 表示 padding 区域）
-        padding_mask = np.ones(image.shape[:2], dtype=np.uint8)
-        padding_mask = transforms.apply_segmentation(padding_mask)
-        padding_mask = ~padding_mask.astype(bool)
+        content_mask = transforms.apply_segmentation(np.ones(image.shape[:2], dtype=np.uint8)).astype(bool)
 
         image_shape = image.shape[:2]
 
         # --- 打包张量 ---
         dataset_dict["image"] = torch.as_tensor(np.ascontiguousarray(image.transpose(2, 0, 1)))
         dataset_dict["depth"] = torch.as_tensor(np.ascontiguousarray(depth.transpose(2, 0, 1)))
-        dataset_dict["padding_mask"] = torch.as_tensor(np.ascontiguousarray(padding_mask))
+        dataset_dict["content_mask"] = torch.as_tensor(np.ascontiguousarray(content_mask))
 
         # --- 训练注释 ---
         if not self.is_train:
