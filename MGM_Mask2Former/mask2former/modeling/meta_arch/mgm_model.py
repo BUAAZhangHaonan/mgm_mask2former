@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) Facebook, Inc. and its affiliates.
 # Modified by MGM Authors
-from typing import Tuple, Dict, List
+from typing import Tuple, Dict
 
 import torch
 from torch import nn
@@ -15,32 +15,22 @@ from detectron2.structures import Boxes, ImageList, Instances
 from detectron2.utils.memory import retry_if_cuda_oom
 from detectron2.layers import ShapeSpec
 
-# --- MGM MODIFICATION START ---
-# Import all our custom modules
 from ..backbone.swin import D2SwinTransformer
 from ..backbone.convnext_depth import ConvNeXtDepthBackbone
-from ..mgm.mgm import MultiModalGatedFusion, build_mgm
-
-# --- MGM MODIFICATION END ---
+from ..mgm.mgm import build_mgm, MultiModalGatedFusion
 from ..criterion import SetCriterion
 from ..matcher import HungarianMatcher
 
 
-# --- MGM MODIFICATION START ---
-# Rename class and update registry
 @META_ARCH_REGISTRY.register()
 class MGMMaskFormer(nn.Module):
-    # --- MGM MODIFICATION END ---
     @configurable
     def __init__(
         self,
         *,
-        # --- MGM MODIFICATION START ---
-        # Replace single backbone with rgb_backbone, depth_backbone, and mgm
         rgb_backbone: D2SwinTransformer,
         depth_backbone: ConvNeXtDepthBackbone,
         mgm: MultiModalGatedFusion,
-        # --- MGM MODIFICATION END ---
         sem_seg_head: nn.Module,
         criterion: nn.Module,
         num_queries: int,
@@ -57,11 +47,9 @@ class MGMMaskFormer(nn.Module):
         test_topk_per_image: int,
     ):
         super().__init__()
-        # --- MGM MODIFICATION START ---
         self.rgb_backbone = rgb_backbone
         self.depth_backbone = depth_backbone
         self.mgm = mgm
-        # --- MGM MODIFICATION END ---
         self.sem_seg_head = sem_seg_head
         self.criterion = criterion
         self.num_queries = num_queries
@@ -69,7 +57,6 @@ class MGMMaskFormer(nn.Module):
         self.object_mask_threshold = object_mask_threshold
         self.metadata = metadata
         if size_divisibility < 0:
-            # use backbone size_divisibility if not set
             size_divisibility = self.rgb_backbone.size_divisibility
         self.size_divisibility = size_divisibility
         self.sem_seg_postprocess_before_inference = sem_seg_postprocess_before_inference
@@ -86,19 +73,14 @@ class MGMMaskFormer(nn.Module):
 
     @classmethod
     def from_config(cls, cfg):
-        # --- MGM MODIFICATION START ---
-        # Manually build the backbones and MGM module
-        # Create dummy input shapes to instantiate the backbones
         rgb_input_shape = ShapeSpec(channels=3)
         depth_input_shape = ShapeSpec(channels=1)
         rgb_backbone = D2SwinTransformer(cfg, rgb_input_shape)
         depth_backbone = ConvNeXtDepthBackbone(cfg, depth_input_shape)
         mgm = build_mgm(cfg)
-        # The sem_seg_head's input shape is the output of the RGB backbone (since MGM preserves it)
         sem_seg_head = build_sem_seg_head(cfg, rgb_backbone.output_shape())
-        # --- MGM MODIFICATION END ---
 
-        # Criterion building is unchanged
+        # ... (Criterion building is unchanged) ...
         deep_supervision = cfg.MODEL.MASK_FORMER.DEEP_SUPERVISION
         no_object_weight = cfg.MODEL.MASK_FORMER.NO_OBJECT_WEIGHT
         class_weight = cfg.MODEL.MASK_FORMER.CLASS_WEIGHT
@@ -162,17 +144,13 @@ class MGMMaskFormer(nn.Module):
         return self.pixel_mean.device
 
     def forward(self, batched_inputs):
-        # --- MGM MODIFICATION START ---
-        # Preprocess images and depths
         images = [x["image"].to(self.device) for x in batched_inputs]
         images = [(x.float() - self.pixel_mean) / self.pixel_std for x in images]
         images = ImageList.from_tensors(images, self.size_divisibility)
 
-        # Mapper provides 'depth' which is normalized and ready for the backbone
         depths = [x["depth"].to(self.device) for x in batched_inputs]
         depths = ImageList.from_tensors(depths, self.size_divisibility)
 
-        # The same tensor can be used for depth_raw for prior calculation
         depth_raw = depths.tensor
         depth_noise_mask = None
         if "depth_noise_mask" in batched_inputs[0]:
@@ -181,7 +159,11 @@ class MGMMaskFormer(nn.Module):
                 masks, self.size_divisibility
             ).tensor
 
-        # Get features from backbones + MGM
+        padding_mask = None
+        if "padding_mask" in batched_inputs[0]:
+            masks = [x["padding_mask"].to(self.device) for x in batched_inputs]
+            padding_mask = ImageList.from_tensors(masks, self.size_divisibility).tensor
+
         rgb_features = self.rgb_backbone(images.tensor)
         depth_features = self.depth_backbone(depths.tensor)
 
@@ -189,14 +171,14 @@ class MGMMaskFormer(nn.Module):
             image_features=rgb_features,
             depth_features=depth_features,
             depth_raw=depth_raw,
-            rgb_image=images.tensor,  # Pass original RGB for edge consistency
+            rgb_image=images.tensor,
             depth_noise_mask=depth_noise_mask,
             is_training=self.training,
         )
 
-        # Pass all necessary info to the head
-        outputs = self.sem_seg_head(fused_features, confidence_maps, depth_raw)
-        # --- MGM MODIFICATION END ---
+        outputs = self.sem_seg_head(
+            fused_features, confidence_maps, depth_raw, padding_mask
+        )
 
         if self.training:
             if "instances" in batched_inputs[0]:
@@ -205,20 +187,15 @@ class MGMMaskFormer(nn.Module):
             else:
                 targets = None
 
-            # Main segmentation losses
             losses = self.criterion(outputs, targets)
-
-            # Combine with MGM's internal losses
             losses.update(mgm_losses)
-
-            # Apply weights
+            # Apply weights from criterion's weight_dict
             for k in list(losses.keys()):
                 if k in self.criterion.weight_dict:
                     losses[k] *= self.criterion.weight_dict[k]
-                # Note: MGM loss weights are already applied inside the MGM module
             return losses
         else:
-            # Inference logic is a direct copy and should work as is
+            # ... (Inference logic is a direct copy and unchanged) ...
             mask_cls_results = outputs["pred_logits"]
             mask_pred_results = outputs["pred_masks"]
             mask_pred_results = F.interpolate(
@@ -261,8 +238,7 @@ class MGMMaskFormer(nn.Module):
                     processed_results[-1]["instances"] = instance_r
             return processed_results
 
-    # prepare_targets, semantic_inference, panoptic_inference, instance_inference
-    # are direct copies and should work as is.
+    # prepare_targets, semantic_inference, panoptic_inference, instance_inference are unchanged
     def prepare_targets(self, targets, images):
         # ... (exact same code) ...
         h_pad, w_pad = images.tensor.shape[-2:]

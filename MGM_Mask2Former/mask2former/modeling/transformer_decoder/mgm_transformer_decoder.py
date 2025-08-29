@@ -11,15 +11,12 @@ from torch.nn import functional as F
 from detectron2.config import configurable
 from detectron2.layers import Conv2d
 
-from .position_encoding import PositionEmbeddingSine
-
-# Use a new registry to avoid conflicts if original Mask2Former is also used
 from .maskformer_transformer_decoder import TRANSFORMER_DECODER_REGISTRY
 
 
-# NOTE: SelfAttentionLayer, FFNLayer, MLP, _get_activation_fn are direct copies
-# from the original and are unchanged.
+# NOTE: SelfAttentionLayer, FFNLayer, MLP, _get_activation_fn are direct copies.
 class SelfAttentionLayer(nn.Module):
+    # ... (exact same code as before) ...
     def __init__(
         self, d_model, nhead, dropout=0.0, activation="relu", normalize_before=False
     ):
@@ -81,9 +78,8 @@ class SelfAttentionLayer(nn.Module):
         return self.forward_post(tgt, tgt_mask, tgt_key_padding_mask, query_pos)
 
 
-# --- MGM MODIFICATION START ---
-# Create a new CrossAttentionLayer to handle a separate key_pos
 class MGMCrossAttentionLayer(nn.Module):
+    # ... (exact same code as before) ...
     def __init__(
         self, d_model, nhead, dropout=0.0, activation="relu", normalize_before=False
     ):
@@ -112,9 +108,7 @@ class MGMCrossAttentionLayer(nn.Module):
         pos: Optional[Tensor] = None,
         query_pos: Optional[Tensor] = None,
         key_pos: Optional[Tensor] = None,
-    ):  # New argument for key PE
-        # Key uses key_pos if provided, otherwise falls back to pos (2D PE)
-        # Query and Value always use the standard pos (2D PE)
+    ):
         tgt2 = self.multihead_attn(
             query=self.with_pos_embed(tgt, query_pos),
             key=self.with_pos_embed(memory, key_pos if key_pos is not None else pos),
@@ -172,11 +166,8 @@ class MGMCrossAttentionLayer(nn.Module):
         )
 
 
-# --- MGM MODIFICATION END ---
-
-
 class FFNLayer(nn.Module):
-    # ... (exact same code) ...
+    # ... (exact same code as before) ...
     def __init__(
         self,
         d_model,
@@ -221,7 +212,7 @@ class FFNLayer(nn.Module):
 
 
 def _get_activation_fn(activation):
-    # ... (exact same code) ...
+    # ... (exact same code as before) ...
     if activation == "relu":
         return F.relu
     if activation == "gelu":
@@ -232,7 +223,7 @@ def _get_activation_fn(activation):
 
 
 class MLP(nn.Module):
-    # ... (exact same code) ...
+    # ... (exact same code as before) ...
     def __init__(self, input_dim, hidden_dim, output_dim, num_layers):
         super().__init__()
         self.num_layers = num_layers
@@ -251,7 +242,7 @@ class MLP(nn.Module):
 class MGMMultiScaleMaskedTransformerDecoder(nn.Module):
     _version = 2
 
-    # _load_from_state_dict method is a direct copy
+    # ... (_load_from_state_dict is unchanged) ...
     def _load_from_state_dict(
         self,
         state_dict,
@@ -262,7 +253,6 @@ class MGMMultiScaleMaskedTransformerDecoder(nn.Module):
         unexpected_keys,
         error_msgs,
     ):
-        # ... (exact same code) ...
         version = local_metadata.get("version", None)
         if version is None or version < 2:
             scratch = True
@@ -297,17 +287,12 @@ class MGMMultiScaleMaskedTransformerDecoder(nn.Module):
         enforce_input_project: bool,
     ):
         super().__init__()
-        assert mask_classification, "Only support mask classification model"
+        assert mask_classification
         self.mask_classification = mask_classification
-
-        # --- MGM MODIFICATION: No PE layer here, it's now computed in the Pixel Decoder ---
-
         self.num_heads = nheads
         self.num_layers = dec_layers
         self.transformer_self_attention_layers = nn.ModuleList()
-        self.transformer_cross_attention_layers = (
-            nn.ModuleList()
-        )  # This will be MGMCrossAttentionLayer
+        self.transformer_cross_attention_layers = nn.ModuleList()
         self.transformer_ffn_layers = nn.ModuleList()
 
         for _ in range(self.num_layers):
@@ -319,8 +304,6 @@ class MGMMultiScaleMaskedTransformerDecoder(nn.Module):
                     normalize_before=pre_norm,
                 )
             )
-            # --- MGM MODIFICATION START ---
-            # Use our new cross-attention layer
             self.transformer_cross_attention_layers.append(
                 MGMCrossAttentionLayer(
                     d_model=hidden_dim,
@@ -329,7 +312,6 @@ class MGMMultiScaleMaskedTransformerDecoder(nn.Module):
                     normalize_before=pre_norm,
                 )
             )
-            # --- MGM MODIFICATION END ---
             self.transformer_ffn_layers.append(
                 FFNLayer(
                     d_model=hidden_dim,
@@ -374,26 +356,26 @@ class MGMMultiScaleMaskedTransformerDecoder(nn.Module):
         ret["mask_dim"] = cfg.MODEL.SEM_SEG_HEAD.MASK_DIM
         return ret
 
-    # --- MGM MODIFICATION START ---
-    # The forward signature is changed to accept pre-computed positional encodings
-    def forward(self, x, mask_features, pos_2d, pos_key=None, mask=None):
-        # --- MGM MODIFICATION END ---
-        assert len(x) == self.num_feature_levels
+    def forward(
+        self,
+        x: List[Tensor],
+        mask_features: Tensor,
+        pos_2d: List[Tensor],
+        pos_key: Optional[List[Tensor]] = None,
+        mask=None,
+    ):
+        assert len(x) == len(pos_2d) == self.num_feature_levels
+        if pos_key is not None:
+            assert len(pos_key) == len(x)
+
         src = []
-        pos = []  # This will now hold flattened pos_2d
+        pos = []
         size_list = []
         del mask
-
         for i in range(self.num_feature_levels):
-            # --- MGM MODIFICATION START ---
-            # pos_2d is a dict of tensors [B,C,H,W]. We need to select the right one.
-            # Assuming x is ordered from high-res to low-res (res2, res3, res4)
-            # And standard feature names are used
-            feature_name = f"res{i+2}"
-            current_pos_2d = pos_2d[feature_name]
-            size_list.append(current_pos_2d.shape[-2:])
-            pos.append(current_pos_2d.flatten(2))
-            # --- MGM MODIFICATION END ---
+            size_list.append(x[i].shape[-2:])
+            # pos_2d is already computed in the pixel decoder
+            pos.append(pos_2d[i].flatten(2))
             src.append(
                 self.input_proj[i](x[i]).flatten(2)
                 + self.level_embed.weight[i][None, :, None]
@@ -415,15 +397,13 @@ class MGMMultiScaleMaskedTransformerDecoder(nn.Module):
 
         for i in range(self.num_layers):
             level_index = i % self.num_feature_levels
-            # --- MGM MODIFICATION START ---
-            # Select the correct key position encoding for the current level
-            feature_name = f"res{level_index+2}"
+
+            # Key PE is either from pos_key list or defaults to the pos_2d list
             current_key_pos = (
-                pos_key[feature_name].flatten(2).permute(2, 0, 1)
-                if pos_key is not None and feature_name in pos_key
+                pos_key[level_index].flatten(2).permute(2, 0, 1)
+                if pos_key is not None
                 else None
             )
-            # --- MGM MODIFICATION END ---
 
             attn_mask[torch.where(attn_mask.sum(-1) == attn_mask.shape[-1])] = False
             output = self.transformer_cross_attention_layers[i](
@@ -433,13 +413,12 @@ class MGMMultiScaleMaskedTransformerDecoder(nn.Module):
                 memory_key_padding_mask=None,
                 pos=pos[level_index],
                 query_pos=query_embed,
-                key_pos=current_key_pos,  # Pass the new key PE
+                key_pos=current_key_pos,
             )
             output = self.transformer_self_attention_layers[i](
                 output, tgt_mask=None, tgt_key_padding_mask=None, query_pos=query_embed
             )
             output = self.transformer_ffn_layers[i](output)
-
             outputs_class, outputs_mask, attn_mask = self.forward_prediction_heads(
                 output,
                 mask_features,
@@ -459,9 +438,9 @@ class MGMMultiScaleMaskedTransformerDecoder(nn.Module):
         }
         return out
 
-    # forward_prediction_heads and _set_aux_loss are direct copies
+    # forward_prediction_heads and _set_aux_loss are unchanged
     def forward_prediction_heads(self, output, mask_features, attn_mask_target_size):
-        # ... (exact same code) ...
+        # ... (exact same code as before) ...
         decoder_output = self.decoder_norm(output)
         decoder_output = decoder_output.transpose(0, 1)
         outputs_class = self.class_embed(decoder_output)
@@ -486,7 +465,7 @@ class MGMMultiScaleMaskedTransformerDecoder(nn.Module):
 
     @torch.jit.unused
     def _set_aux_loss(self, outputs_class, outputs_seg_masks):
-        # ... (exact same code) ...
+        # ... (exact same code as before) ...
         if self.mask_classification:
             return [
                 {"pred_logits": a, "pred_masks": b}

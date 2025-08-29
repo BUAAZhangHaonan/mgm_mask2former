@@ -3,7 +3,6 @@
 # Modified by MGM Authors
 import numpy as np
 from typing import Callable, Dict, List, Optional, Union, Tuple
-
 import fvcore.nn.weight_init as weight_init
 import torch
 from torch import nn
@@ -15,22 +14,16 @@ from detectron2.config import configurable
 from detectron2.layers import Conv2d, ShapeSpec, get_norm
 from detectron2.modeling import SEM_SEG_HEADS_REGISTRY
 
-# --- MGM MODIFICATION START ---
-# Import our new Depth Position Encoding module
 from ..transformer_decoder.depth_position_encoding import DepthPosEncoding
-
-# --- MGM MODIFICATION END ---
 from ..transformer_decoder.position_encoding import PositionEmbeddingSine
 from ..transformer_decoder.transformer import _get_clones, _get_activation_fn
-
-# Note: The ops.modules MSDeformAttn is a CUDA-based operator. We will not modify it.
 from .ops.modules import MSDeformAttn
 
 
-# NOTE: The following three classes are direct copies from the original msdeformattn.py
-# and are unchanged. They are prerequisites for the main Pixel Decoder class.
+# NOTE: MSDeformAttnTransformerEncoderOnly, MSDeformAttnTransformerEncoderLayer, MSDeformAttnTransformerEncoder
+# are direct copies and are unchanged.
 class MSDeformAttnTransformerEncoderOnly(nn.Module):
-    # ... (exact same code as in msdeformattn.py) ...
+    # ... (exact same code as before) ...
     def __init__(
         self,
         d_model=256,
@@ -73,8 +66,7 @@ class MSDeformAttnTransformerEncoderOnly(nn.Module):
         valid_W = torch.sum(~mask[:, 0, :], 1)
         valid_ratio_h = valid_H.float() / H
         valid_ratio_w = valid_W.float() / W
-        valid_ratio = torch.stack([valid_ratio_w, valid_ratio_h], -1)
-        return valid_ratio
+        return torch.stack([valid_ratio_w, valid_ratio_h], -1)
 
     def forward(self, srcs, pos_embeds):
         masks = [
@@ -120,7 +112,7 @@ class MSDeformAttnTransformerEncoderOnly(nn.Module):
 
 
 class MSDeformAttnTransformerEncoderLayer(nn.Module):
-    # ... (exact same code as in msdeformattn.py) ...
+    # ... (exact same code as before) ...
     def __init__(
         self,
         d_model=256,
@@ -176,7 +168,7 @@ class MSDeformAttnTransformerEncoderLayer(nn.Module):
 
 
 class MSDeformAttnTransformerEncoder(nn.Module):
-    # ... (exact same code as in msdeformattn.py) ...
+    # ... (exact same code as before) ...
     def __init__(self, encoder_layer, num_layers):
         super().__init__()
         self.layers = _get_clones(encoder_layer, num_layers)
@@ -190,7 +182,7 @@ class MSDeformAttnTransformerEncoder(nn.Module):
                 torch.linspace(0.5, H_ - 0.5, H_, dtype=torch.float32, device=device),
                 torch.linspace(0.5, W_ - 0.5, W_, dtype=torch.float32, device=device),
                 indexing="ij",
-            )  # Fix for new PyTorch warning
+            )
             ref_y = ref_y.reshape(-1)[None] / (valid_ratios[:, None, lvl, 1] * H_)
             ref_x = ref_x.reshape(-1)[None] / (valid_ratios[:, None, lvl, 0] * W_)
             ref = torch.stack((ref_x, ref_y), -1)
@@ -224,11 +216,8 @@ class MSDeformAttnTransformerEncoder(nn.Module):
         return output
 
 
-# --- MGM MODIFICATION START ---
-# Rename the class and update the registry key
 @SEM_SEG_HEADS_REGISTRY.register()
 class MGMMSDeformAttnPixelDecoder(nn.Module):
-    # --- MGM MODIFICATION END ---
     @configurable
     def __init__(
         self,
@@ -243,20 +232,17 @@ class MGMMSDeformAttnPixelDecoder(nn.Module):
         norm: Optional[Union[str, Callable]] = None,
         transformer_in_features: List[str],
         common_stride: int,
-        # --- MGM MODIFICATION START ---
         dpe_enabled: bool,
-        # --- MGM MODIFICATION END ---
     ):
         super().__init__()
+        # ... (most of __init__ is a direct copy) ...
         transformer_input_shape = {
             k: v for k, v in input_shape.items() if k in transformer_in_features
         }
-
         input_shape = sorted(input_shape.items(), key=lambda x: x[1].stride)
         self.in_features = [k for k, v in input_shape]
         self.feature_strides = [v.stride for k, v in input_shape]
         self.feature_channels = [v.channels for k, v in input_shape]
-
         transformer_input_shape = sorted(
             transformer_input_shape.items(), key=lambda x: x[1].stride
         )
@@ -265,7 +251,6 @@ class MGMMSDeformAttnPixelDecoder(nn.Module):
         self.transformer_feature_strides = [
             v.stride for k, v in transformer_input_shape
         ]
-
         self.transformer_num_feature_levels = len(self.transformer_in_features)
         if self.transformer_num_feature_levels > 1:
             input_proj_list = []
@@ -286,11 +271,9 @@ class MGMMSDeformAttnPixelDecoder(nn.Module):
                     )
                 ]
             )
-
         for proj in self.input_proj:
             nn.init.xavier_uniform_(proj[0].weight, gain=1)
             nn.init.constant_(proj[0].bias, 0)
-
         self.transformer = MSDeformAttnTransformerEncoderOnly(
             d_model=conv_dim,
             dropout=transformer_dropout,
@@ -299,31 +282,19 @@ class MGMMSDeformAttnPixelDecoder(nn.Module):
             num_encoder_layers=transformer_enc_layers,
             num_feature_levels=self.transformer_num_feature_levels,
         )
-        N_steps = conv_dim // 2
-        self.pe_layer = PositionEmbeddingSine(N_steps, normalize=True)
-
-        # --- MGM MODIFICATION START ---
-        # Add Depth Position Encoding module
+        self.pe_layer = PositionEmbeddingSine(conv_dim // 2, normalize=True)
         self.dpe_enabled = dpe_enabled
         if self.dpe_enabled:
             self.depth_pe = DepthPosEncoding(hidden_dim=conv_dim)
-        # --- MGM MODIFICATION END ---
-
         self.mask_dim = mask_dim
         self.mask_features = Conv2d(
-            conv_dim,
-            mask_dim,
-            kernel_size=1,
-            stride=1,
-            padding=0,
+            conv_dim, mask_dim, kernel_size=1, stride=1, padding=0
         )
         weight_init.c2_xavier_fill(self.mask_features)
-
         self.maskformer_num_feature_levels = 3
         self.common_stride = common_stride
         stride = min(self.transformer_feature_strides)
         self.num_fpn_levels = int(np.log2(stride) - np.log2(self.common_stride))
-
         lateral_convs = []
         output_convs = []
         use_bias = norm == ""
@@ -345,8 +316,8 @@ class MGMMSDeformAttnPixelDecoder(nn.Module):
             )
             weight_init.c2_xavier_fill(lateral_conv)
             weight_init.c2_xavier_fill(output_conv)
-            self.add_module("adapter_{}".format(idx + 1), lateral_conv)
-            self.add_module("layer_{}".format(idx + 1), output_conv)
+            self.add_module(f"adapter_{idx+1}", lateral_conv)
+            self.add_module(f"layer_{idx+1}", output_conv)
             lateral_convs.append(lateral_conv)
             output_convs.append(output_conv)
         self.lateral_convs = lateral_convs[::-1]
@@ -370,14 +341,10 @@ class MGMMSDeformAttnPixelDecoder(nn.Module):
         ret["transformer_in_features"] = (
             cfg.MODEL.SEM_SEG_HEAD.DEFORMABLE_TRANSFORMER_ENCODER_IN_FEATURES
         )
-        ret["common_stride"] = cfg.MODEL.SEM_SEG_HEAD.COMMON_STRIDE
-        # --- MGM MODIFICATION START ---
+        ret["common_stride"] = cfg.MODEL.SEM_SEG_HEAD.COMMON_stride
         ret["dpe_enabled"] = cfg.MODEL.DPE.ENABLED
-        # --- MGM MODIFICATION END ---
         return ret
 
-    # --- MGM MODIFICATION START ---
-    # The forward signature is changed to accept MGM-specific inputs.
     @autocast(device_type="cuda", enabled=False)
     def forward_features(
         self,
@@ -385,25 +352,17 @@ class MGMMSDeformAttnPixelDecoder(nn.Module):
         *,
         depth_raw: Optional[torch.Tensor] = None,
         confidence_maps: Optional[Dict[str, torch.Tensor]] = None,
-    ) -> Tuple[
-        torch.Tensor,
-        torch.Tensor,
-        List[torch.Tensor],
-        Dict[str, torch.Tensor],
-        Optional[Dict[str, torch.Tensor]],
-    ]:
-        # --- MGM MODIFICATION END ---
+        padding_mask: Optional[torch.Tensor] = None,
+    ):
         srcs = []
-        pos_2d = []  # Store 2D pos encodings
-
+        pos = []
         for idx, f in enumerate(self.transformer_in_features[::-1]):
             x = features[f].float()
             srcs.append(self.input_proj[idx](x))
-            pos_2d.append(self.pe_layer(x))
+            pos.append(self.pe_layer(x))
 
-        y, spatial_shapes, level_start_index = self.transformer(srcs, pos_2d)
+        y, spatial_shapes, level_start_index = self.transformer(srcs, pos)
         bs = y.shape[0]
-
         split_size_or_sections = [
             (
                 level_start_index[i + 1] - level_start_index[i]
@@ -438,42 +397,78 @@ class MGMMSDeformAttnPixelDecoder(nn.Module):
             if i < self.maskformer_num_feature_levels:
                 multi_scale_features.append(o)
 
-        # --- MGM MODIFICATION START ---
-        # Calculate final 2D and Key PE after all multi-scale features are generated
-        final_pos_2d = {}
-        final_pos_key = None
+        # --- RECONSTRUCTION OF PE LOGIC ACCORDING TO REVIEW ---
+        # The decoder uses a fixed number of feature levels (3), and they are ordered
+        # from low resolution to high resolution in the multi_scale_features list.
+        # Typically this corresponds to [res5, res4, res3] from the backbone.
 
-        # Base 2D PE
-        for i, f_name in enumerate(self.in_features):
-            if f_name in features:  # Ensure feature exists
-                final_pos_2d[f_name] = self.pe_layer(features[f_name])
+        pos_2d_list = []
+        pos_key_list = None
 
-        # Confidence-Conditioned Depth Position Encoding (CC-DPE)
+        # 1. Generate 2D PE for the multi-scale features that the decoder will use.
+        for feature_level in multi_scale_features:
+            pos_2d_list.append(self.pe_layer(feature_level, padding_mask))
+
+        # 2. Generate CC-DPE if enabled.
         if self.dpe_enabled and depth_raw is not None and confidence_maps is not None:
-            final_pos_key = {}
-            # Calculate base depth embedding at full resolution once
-            depth_pe_base = self.depth_pe(depth_raw)
+            pos_key_list = []
 
-            for f_name, pos2d_tensor in final_pos_2d.items():
-                target_shape = pos2d_tensor.shape[-2:]
+            # The decoder's multi-scale features usually correspond to specific backbone features.
+            # We assume the standard Mask2Former order: [res5, res4, res3] for the 3 levels.
+            # We must map the list index back to the feature name to get the correct confidence map.
+            decoder_feature_names = self.transformer_in_features[::-1][
+                : self.maskformer_num_feature_levels
+            ]
 
-                # Resize depth PE and confidence map to match feature scale
+            # Calculate base depth embedding once at full resolution.
+            depth_pe_base = self.depth_pe(depth_raw, padding_mask)
+
+            assert (
+                len(multi_scale_features)
+                == len(pos_2d_list)
+                == len(decoder_feature_names)
+            ), "Mismatch between number of features, PEs, and feature names for the decoder."
+
+            for i, feature_level in enumerate(multi_scale_features):
+                target_shape = feature_level.shape[-2:]
+                feature_name = decoder_feature_names[i]
+
+                # Interpolate depth PE and confidence map to the current feature level's size.
                 depth_pe_scaled = F.interpolate(
                     depth_pe_base,
                     size=target_shape,
                     mode="bilinear",
                     align_corners=False,
                 )
-                conf_map_scaled = confidence_maps[f_name]
+                conf_map_scaled = F.interpolate(
+                    confidence_maps[feature_name],
+                    size=target_shape,
+                    mode="bilinear",
+                    align_corners=False,
+                )
 
-                final_pos_key[f_name] = pos2d_tensor + conf_map_scaled * depth_pe_scaled
+                # Calculate the final key position encoding.
+                pos_key = pos_2d_list[i] + conf_map_scaled * depth_pe_scaled
+                pos_key_list.append(pos_key)
 
-        # The return signature is changed to include pos_2d and pos_key
+        # Final assertions for robustness
+        for i, (feat, p2d) in enumerate(zip(multi_scale_features, pos_2d_list)):
+            assert (
+                feat.shape[-2:] == p2d.shape[-2:]
+            ), f"PE and feature shape mismatch at level {i}"
+        if pos_key_list is not None:
+            assert len(pos_key_list) == len(
+                pos_2d_list
+            ), "pos_key and pos_2d list length mismatch"
+            for i, (pk, p2d) in enumerate(zip(pos_key_list, pos_2d_list)):
+                assert (
+                    pk.shape == p2d.shape
+                ), f"pos_key and pos_2d shape mismatch at level {i}"
+
         return (
             self.mask_features(out[-1]),
             out[0],
             multi_scale_features,
-            final_pos_2d,
-            final_pos_key,
+            pos_2d_list,
+            pos_key_list,
         )
-        # --- MGM MODIFICATION END ---

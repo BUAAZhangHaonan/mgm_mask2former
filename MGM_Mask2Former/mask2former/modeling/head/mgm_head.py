@@ -2,35 +2,25 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 # Modified by MGM Authors
 import logging
-from copy import deepcopy
-from typing import Callable, Dict, List, Optional, Tuple, Union
-
-import fvcore.nn.weight_init as weight_init
+from typing import Dict, List, Optional, Tuple
+import torch
 from torch import nn
-from torch.nn import functional as F
 
 from detectron2.config import configurable
-from detectron2.layers import Conv2d, ShapeSpec, get_norm
-from detectron2.modeling import SEM_SEG_HEADS_REGISTRY
+from detectron2.layers import ShapeSpec
 
-# --- MGM MODIFICATION START ---
-# These build functions will now point to our MGM versions via the registry
+from detectron2.modeling import SEM_SEG_HEADS_REGISTRY
 from ..transformer_decoder.maskformer_transformer_decoder import (
     build_transformer_decoder,
 )
 from ..pixel_decoder import build_pixel_decoder
 
-# --- MGM MODIFICATION END ---
 
-
-# --- MGM MODIFICATION START ---
-# Rename class and update registry
 @SEM_SEG_HEADS_REGISTRY.register()
 class MGMHead(nn.Module):
-    # --- MGM MODIFICATION END ---
     _version = 2
 
-    # _load_from_state_dict is a direct copy
+    # _load_from_state_dict is unchanged
     def _load_from_state_dict(
         self,
         state_dict,
@@ -41,7 +31,6 @@ class MGMHead(nn.Module):
         unexpected_keys,
         error_msgs,
     ):
-        # ... (exact same code) ...
         version = local_metadata.get("version", None)
         if version is None or version < 2:
             scratch = True
@@ -84,16 +73,12 @@ class MGMHead(nn.Module):
 
     @classmethod
     def from_config(cls, cfg, input_shape: Dict[str, ShapeSpec]):
-        if cfg.MODEL.MASK_FORMER.TRANSFORMER_IN_FEATURE == "transformer_encoder":
-            transformer_predictor_in_channels = cfg.MODEL.SEM_SEG_HEAD.CONVS_DIM
-        elif (
-            cfg.MODEL.MASK_FORMER.TRANSFORMER_IN_FEATURE == "multi_scale_pixel_decoder"
-        ):
-            transformer_predictor_in_channels = cfg.MODEL.SEM_SEG_HEAD.CONVS_DIM
-        else:
-            raise NotImplementedError(
-                "Only multi_scale_pixel_decoder is supported for transformer_in_feature with MGM."
+        if cfg.MODEL.MASK_FORMER.TRANSFORMER_IN_FEATURE != "multi_scale_pixel_decoder":
+            raise ValueError(
+                "MGMHead only supports 'multi_scale_pixel_decoder' for TRANSFORMER_IN_FEATURE."
             )
+
+        transformer_predictor_in_channels = cfg.MODEL.SEM_SEG_HEAD.CONVS_DIM
 
         return {
             "input_shape": {
@@ -103,8 +88,6 @@ class MGMHead(nn.Module):
             },
             "ignore_value": cfg.MODEL.SEM_SEG_HEAD.IGNORE_VALUE,
             "num_classes": cfg.MODEL.SEM_SEG_HEAD.NUM_CLASSES,
-            # build_pixel_decoder and build_transformer_decoder will use the names
-            # specified in the YAML file to build our MGM versions.
             "pixel_decoder": build_pixel_decoder(cfg, input_shape),
             "loss_weight": cfg.MODEL.SEM_SEG_HEAD.LOSS_WEIGHT,
             "transformer_in_feature": cfg.MODEL.MASK_FORMER.TRANSFORMER_IN_FEATURE,
@@ -113,23 +96,22 @@ class MGMHead(nn.Module):
             ),
         }
 
-    # --- MGM MODIFICATION START ---
-    # The forward signature is changed to accept MGM-specific inputs.
-    def forward(self, features, confidence_maps, depth_raw, mask=None):
-        return self.layers(features, confidence_maps, depth_raw, mask)
+    def forward(self, features, confidence_maps, depth_raw, padding_mask, mask=None):
+        return self.layers(features, confidence_maps, depth_raw, padding_mask, mask)
 
-    def layers(self, features, confidence_maps, depth_raw, mask=None):
-        # The pixel decoder now needs depth and confidence maps
-        mask_features, _, multi_scale_features, pos_2d, pos_key = (
+    def layers(self, features, confidence_maps, depth_raw, padding_mask, mask=None):
+        # The pixel decoder now handles PE calculation and returns PE lists
+        mask_features, _, multi_scale_features, pos_2d_list, pos_key_list = (
             self.pixel_decoder.forward_features(
-                features, depth_raw=depth_raw, confidence_maps=confidence_maps
+                features,
+                depth_raw=depth_raw,
+                confidence_maps=confidence_maps,
+                padding_mask=padding_mask,
             )
         )
 
-        # The transformer decoder now needs pos_2d and pos_key
+        # The transformer decoder receives the PE lists
         predictions = self.predictor(
-            multi_scale_features, mask_features, pos_2d, pos_key, mask
+            multi_scale_features, mask_features, pos_2d_list, pos_key_list, mask
         )
         return predictions
-
-    # --- MGM MODIFICATION END ---
