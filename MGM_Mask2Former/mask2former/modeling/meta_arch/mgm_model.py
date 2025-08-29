@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) Facebook, Inc. and its affiliates.
 # Modified by MGM Authors
-from typing import Tuple, Dict
+from typing import Tuple
 
 import torch
 from torch import nn
@@ -11,7 +11,11 @@ from detectron2.config import configurable
 from detectron2.data import MetadataCatalog
 from detectron2.modeling import META_ARCH_REGISTRY, build_sem_seg_head
 from detectron2.modeling.postprocessing import sem_seg_postprocess
-from detectron2.structures import Boxes, ImageList, Instances
+from detectron2.structures import (
+    Boxes,
+    ImageList,
+    Instances,
+)
 from detectron2.utils.memory import retry_if_cuda_oom
 from detectron2.layers import ShapeSpec
 
@@ -79,8 +83,6 @@ class MGMMaskFormer(nn.Module):
         depth_backbone = ConvNeXtDepthBackbone(cfg, depth_input_shape)
         mgm = build_mgm(cfg)
         sem_seg_head = build_sem_seg_head(cfg, rgb_backbone.output_shape())
-
-        # ... (Criterion building is unchanged) ...
         deep_supervision = cfg.MODEL.MASK_FORMER.DEEP_SUPERVISION
         no_object_weight = cfg.MODEL.MASK_FORMER.NO_OBJECT_WEIGHT
         class_weight = cfg.MODEL.MASK_FORMER.CLASS_WEIGHT
@@ -159,10 +161,14 @@ class MGMMaskFormer(nn.Module):
                 masks, self.size_divisibility
             ).tensor
 
-        padding_mask = None
-        if "padding_mask" in batched_inputs[0]:
-            masks = [x["padding_mask"].to(self.device) for x in batched_inputs]
-            padding_mask = ImageList.from_tensors(masks, self.size_divisibility).tensor
+        # 统一自行构造 padding_mask，忽略外部传入
+        B, _, H, W = images.tensor.shape
+        padding_mask = torch.zeros(
+            (B, H, W), dtype=torch.bool, device=images.tensor.device
+        )
+        for i, (h, w) in enumerate(images.image_sizes):
+            padding_mask[i, h:, :] = True
+            padding_mask[i, :, w:] = True
 
         rgb_features = self.rgb_backbone(images.tensor)
         depth_features = self.depth_backbone(depths.tensor)
@@ -176,6 +182,7 @@ class MGMMaskFormer(nn.Module):
             is_training=self.training,
         )
 
+        # 传入新构造的 padding_mask
         outputs = self.sem_seg_head(
             fused_features, confidence_maps, depth_raw, padding_mask
         )
@@ -188,14 +195,22 @@ class MGMMaskFormer(nn.Module):
                 targets = None
 
             losses = self.criterion(outputs, targets)
+
+            # 对 MGM 模块损失加权（中风险3）
+            # 注意：需在 mgm.py 中移除内部的 * weight，避免重复
+            for k, v in mgm_losses.items():
+                if k == "loss_mgm_entropy":
+                    mgm_losses[k] = v * self.mgm.loss_entropy_weight
+                elif k == "loss_mgm_noise":
+                    mgm_losses[k] = v * self.mgm.noise_mask_weight
             losses.update(mgm_losses)
-            # Apply weights from criterion's weight_dict
+
+            # 仅对 criterion 维护的监督损失应用其权重表
             for k in list(losses.keys()):
                 if k in self.criterion.weight_dict:
                     losses[k] *= self.criterion.weight_dict[k]
             return losses
         else:
-            # ... (Inference logic is a direct copy and unchanged) ...
             mask_cls_results = outputs["pred_logits"]
             mask_pred_results = outputs["pred_masks"]
             mask_pred_results = F.interpolate(
@@ -238,9 +253,7 @@ class MGMMaskFormer(nn.Module):
                     processed_results[-1]["instances"] = instance_r
             return processed_results
 
-    # prepare_targets, semantic_inference, panoptic_inference, instance_inference are unchanged
     def prepare_targets(self, targets, images):
-        # ... (exact same code) ...
         h_pad, w_pad = images.tensor.shape[-2:]
         new_targets = []
         for targets_per_image in targets:
@@ -257,14 +270,12 @@ class MGMMaskFormer(nn.Module):
         return new_targets
 
     def semantic_inference(self, mask_cls, mask_pred):
-        # ... (exact same code) ...
         mask_cls = F.softmax(mask_cls, dim=-1)[..., :-1]
         mask_pred = mask_pred.sigmoid()
         semseg = torch.einsum("qc,qhw->chw", mask_cls, mask_pred)
         return semseg
 
     def panoptic_inference(self, mask_cls, mask_pred):
-        # ... (exact same code) ...
         scores, labels = F.softmax(mask_cls, dim=-1).max(-1)
         mask_pred = mask_pred.sigmoid()
         keep = labels.ne(self.sem_seg_head.num_classes) & (
@@ -312,7 +323,6 @@ class MGMMaskFormer(nn.Module):
             return panoptic_seg, segments_info
 
     def instance_inference(self, mask_cls, mask_pred):
-        # ... (exact same code) ...
         image_size = mask_pred.shape[-2:]
         scores = F.softmax(mask_cls, dim=-1)[:, :-1]
         labels = (

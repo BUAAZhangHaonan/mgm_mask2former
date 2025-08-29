@@ -2,8 +2,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 # Modified by MGM Authors
 import logging
-from typing import Dict, List, Optional, Tuple
-import torch
+from typing import Dict
 from torch import nn
 
 from detectron2.config import configurable
@@ -20,7 +19,6 @@ from ..pixel_decoder import build_pixel_decoder
 class MGMHead(nn.Module):
     _version = 2
 
-    # _load_from_state_dict is unchanged
     def _load_from_state_dict(
         self,
         state_dict,
@@ -100,17 +98,25 @@ class MGMHead(nn.Module):
         return self.layers(features, confidence_maps, depth_raw, padding_mask, mask)
 
     def layers(self, features, confidence_maps, depth_raw, padding_mask, mask=None):
-        # The pixel decoder now handles PE calculation and returns PE lists
+        # 透传 padding_mask
         mask_features, _, multi_scale_features, pos_2d_list, pos_key_list = (
             self.pixel_decoder.forward_features(
                 features,
                 depth_raw=depth_raw,
                 confidence_maps=confidence_maps,
-                padding_mask=padding_mask,
+                padding_mask=padding_mask,  # 确保存在
             )
         )
 
-        # The transformer decoder receives the PE lists
+        assert len(multi_scale_features) == len(
+            pos_2d_list
+        ), "multi_scale_features 与 pos_2d_list 数量不一致"
+        if pos_key_list is not None:
+            assert len(pos_key_list) == len(
+                pos_2d_list
+            ), "pos_key_list 与 pos_2d_list 数量不一致"
+            
+        # 调用 transformer 解码器
         predictions = self.predictor(
             multi_scale_features, mask_features, pos_2d_list, pos_key_list, mask
         )

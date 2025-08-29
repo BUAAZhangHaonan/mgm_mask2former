@@ -2,7 +2,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 # Modified by MGM Authors
 import numpy as np
-from typing import Callable, Dict, List, Optional, Union, Tuple
+from typing import Callable, Dict, List, Optional, Union
 import fvcore.nn.weight_init as weight_init
 import torch
 from torch import nn
@@ -20,10 +20,7 @@ from ..transformer_decoder.transformer import _get_clones, _get_activation_fn
 from .ops.modules import MSDeformAttn
 
 
-# NOTE: MSDeformAttnTransformerEncoderOnly, MSDeformAttnTransformerEncoderLayer, MSDeformAttnTransformerEncoder
-# are direct copies and are unchanged.
 class MSDeformAttnTransformerEncoderOnly(nn.Module):
-    # ... (exact same code as before) ...
     def __init__(
         self,
         d_model=256,
@@ -112,7 +109,6 @@ class MSDeformAttnTransformerEncoderOnly(nn.Module):
 
 
 class MSDeformAttnTransformerEncoderLayer(nn.Module):
-    # ... (exact same code as before) ...
     def __init__(
         self,
         d_model=256,
@@ -168,7 +164,6 @@ class MSDeformAttnTransformerEncoderLayer(nn.Module):
 
 
 class MSDeformAttnTransformerEncoder(nn.Module):
-    # ... (exact same code as before) ...
     def __init__(self, encoder_layer, num_layers):
         super().__init__()
         self.layers = _get_clones(encoder_layer, num_layers)
@@ -235,7 +230,6 @@ class MGMMSDeformAttnPixelDecoder(nn.Module):
         dpe_enabled: bool,
     ):
         super().__init__()
-        # ... (most of __init__ is a direct copy) ...
         transformer_input_shape = {
             k: v for k, v in input_shape.items() if k in transformer_in_features
         }
@@ -322,6 +316,10 @@ class MGMMSDeformAttnPixelDecoder(nn.Module):
             output_convs.append(output_conv)
         self.lateral_convs = lateral_convs[::-1]
         self.output_convs = output_convs[::-1]
+        # ===== 记录解码器使用的特征名称顺序，避免多处重复逻辑，并锁定顺序 =====
+        self.decoder_level_names = self.transformer_in_features[::-1][
+            : self.maskformer_num_feature_levels
+        ]
 
     @classmethod
     def from_config(cls, cfg, input_shape: Dict[str, ShapeSpec]):
@@ -341,7 +339,9 @@ class MGMMSDeformAttnPixelDecoder(nn.Module):
         ret["transformer_in_features"] = (
             cfg.MODEL.SEM_SEG_HEAD.DEFORMABLE_TRANSFORMER_ENCODER_IN_FEATURES
         )
-        ret["common_stride"] = cfg.MODEL.SEM_SEG_HEAD.COMMON_stride
+        ret["common_stride"] = (
+            cfg.MODEL.SEM_SEG_HEAD.COMMON_STRIDE
+        )
         ret["dpe_enabled"] = cfg.MODEL.DPE.ENABLED
         return ret
 
@@ -354,13 +354,15 @@ class MGMMSDeformAttnPixelDecoder(nn.Module):
         confidence_maps: Optional[Dict[str, torch.Tensor]] = None,
         padding_mask: Optional[torch.Tensor] = None,
     ):
-        srcs = []
-        pos = []
+        # ====== 编码器输入构建（确保 PE 作用于投影后特征）======
+        srcs, pos = [], []
         for idx, f in enumerate(self.transformer_in_features[::-1]):
             x = features[f].float()
-            srcs.append(self.input_proj[idx](x))
-            pos.append(self.pe_layer(x))
-
+            proj_x = self.input_proj[idx](x)
+            srcs.append(proj_x)
+            # 编码器阶段无需 padding_mask（此处仅形状对齐），若后续需要可扩展
+            pos.append(self.pe_layer(proj_x))
+        # 编码器前向
         y, spatial_shapes, level_start_index = self.transformer(srcs, pos)
         bs = y.shape[0]
         split_size_or_sections = [
@@ -392,48 +394,53 @@ class MGMMSDeformAttnPixelDecoder(nn.Module):
             y = output_conv(y)
             out.append(y)
 
+        # 选出供解码器使用的前三个尺度 (低 -> 高分辨率)
         multi_scale_features = []
         for i, o in enumerate(out):
             if i < self.maskformer_num_feature_levels:
                 multi_scale_features.append(o)
 
-        # --- RECONSTRUCTION OF PE LOGIC ACCORDING TO REVIEW ---
-        # The decoder uses a fixed number of feature levels (3), and they are ordered
-        # from low resolution to high resolution in the multi_scale_features list.
-        # Typically this corresponds to [res5, res4, res3] from the backbone.
-
+        # ====== 生成 2D 位置编码（对 padding_mask 先下采样后传入）======
         pos_2d_list = []
-        pos_key_list = None
-
-        # 1. Generate 2D PE for the multi-scale features that the decoder will use.
         for feature_level in multi_scale_features:
-            pos_2d_list.append(self.pe_layer(feature_level, padding_mask))
+            mask_i = None
+            if padding_mask is not None:
+                # 最近邻下采样后转 bool，True=无效
+                mask_i = (
+                    F.interpolate(
+                        padding_mask.unsqueeze(1).float(),
+                        size=feature_level.shape[-2:],
+                        mode="nearest",
+                    )
+                    .squeeze(1)
+                    .bool()
+                )
+            pos_2d_list.append(self.pe_layer(feature_level, mask_i))
 
-        # 2. Generate CC-DPE if enabled.
+        # ====== 计算 Key 位置编码（融合深度 + 置信度），仅在启用 DPE 且输入齐全时 ======
+        pos_key_list = None
         if self.dpe_enabled and depth_raw is not None and confidence_maps is not None:
             pos_key_list = []
-
-            # The decoder's multi-scale features usually correspond to specific backbone features.
-            # We assume the standard Mask2Former order: [res5, res4, res3] for the 3 levels.
-            # We must map the list index back to the feature name to get the correct confidence map.
-            decoder_feature_names = self.transformer_in_features[::-1][
-                : self.maskformer_num_feature_levels
-            ]
-
-            # Calculate base depth embedding once at full resolution.
+            decoder_feature_names = self.decoder_level_names
+            # 计算全分辨率深度位置编码一次
             depth_pe_base = self.depth_pe(depth_raw, padding_mask)
 
-            assert (
-                len(multi_scale_features)
-                == len(pos_2d_list)
-                == len(decoder_feature_names)
-            ), "Mismatch between number of features, PEs, and feature names for the decoder."
+            assert len(multi_scale_features) == len(
+                decoder_feature_names
+            ), "特征层数量与记录的层级名不一致"
 
             for i, feature_level in enumerate(multi_scale_features):
                 target_shape = feature_level.shape[-2:]
                 feature_name = decoder_feature_names[i]
 
-                # Interpolate depth PE and confidence map to the current feature level's size.
+                # --- 健壮性检查 ---
+                conf_map = confidence_maps.get(feature_name)
+                assert conf_map is not None, f"缺少特征 '{feature_name}' 的置信度图"
+                if conf_map.dim() == 3:  # (B,H,W) -> (B,1,H,W)
+                    conf_map = conf_map.unsqueeze(1)
+                assert conf_map.shape[1] == 1, "置信度图必须是单通道"
+
+                # 插值：深度位置编码 & 置信度
                 depth_pe_scaled = F.interpolate(
                     depth_pe_base,
                     size=target_shape,
@@ -441,29 +448,28 @@ class MGMMSDeformAttnPixelDecoder(nn.Module):
                     align_corners=False,
                 )
                 conf_map_scaled = F.interpolate(
-                    confidence_maps[feature_name],
+                    conf_map.to(feature_level.device).to(feature_level.dtype),
                     size=target_shape,
                     mode="bilinear",
                     align_corners=False,
                 )
 
-                # Calculate the final key position encoding.
-                pos_key = pos_2d_list[i] + conf_map_scaled * depth_pe_scaled
+                # 数值限制：置信度 clamp 到 [0,1]；深度位置编码 tanh 限幅
+                conf_map_clamped = conf_map_scaled.clamp(0.0, 1.0)
+                depth_pe_tanh = depth_pe_scaled.tanh()
+
+                # 融合：2D PE + (置信度 * 深度 PE)
+                pos_key = pos_2d_list[i] + conf_map_clamped * depth_pe_tanh
                 pos_key_list.append(pos_key)
 
-        # Final assertions for robustness
         for i, (feat, p2d) in enumerate(zip(multi_scale_features, pos_2d_list)):
-            assert (
-                feat.shape[-2:] == p2d.shape[-2:]
-            ), f"PE and feature shape mismatch at level {i}"
+            assert feat.shape[-2:] == p2d.shape[-2:], f"第{i}层: 2D位置编码形状不匹配"
         if pos_key_list is not None:
             assert len(pos_key_list) == len(
                 pos_2d_list
-            ), "pos_key and pos_2d list length mismatch"
+            ), "pos_key_list 与 pos_2d_list 长度不一致"
             for i, (pk, p2d) in enumerate(zip(pos_key_list, pos_2d_list)):
-                assert (
-                    pk.shape == p2d.shape
-                ), f"pos_key and pos_2d shape mismatch at level {i}"
+                assert pk.shape == p2d.shape, f"第{i}层: pos_key 与 pos_2d 形状不一致"
 
         return (
             self.mask_features(out[-1]),

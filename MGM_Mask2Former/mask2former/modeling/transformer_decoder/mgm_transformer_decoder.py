@@ -3,7 +3,7 @@
 # Modified by MGM Authors
 import logging
 import fvcore.nn.weight_init as weight_init
-from typing import Optional, Dict, List
+from typing import Optional, List
 import torch
 from torch import nn, Tensor
 from torch.nn import functional as F
@@ -14,9 +14,7 @@ from detectron2.layers import Conv2d
 from .maskformer_transformer_decoder import TRANSFORMER_DECODER_REGISTRY
 
 
-# NOTE: SelfAttentionLayer, FFNLayer, MLP, _get_activation_fn are direct copies.
 class SelfAttentionLayer(nn.Module):
-    # ... (exact same code as before) ...
     def __init__(
         self, d_model, nhead, dropout=0.0, activation="relu", normalize_before=False
     ):
@@ -79,7 +77,6 @@ class SelfAttentionLayer(nn.Module):
 
 
 class MGMCrossAttentionLayer(nn.Module):
-    # ... (exact same code as before) ...
     def __init__(
         self, d_model, nhead, dropout=0.0, activation="relu", normalize_before=False
     ):
@@ -167,7 +164,6 @@ class MGMCrossAttentionLayer(nn.Module):
 
 
 class FFNLayer(nn.Module):
-    # ... (exact same code as before) ...
     def __init__(
         self,
         d_model,
@@ -212,7 +208,6 @@ class FFNLayer(nn.Module):
 
 
 def _get_activation_fn(activation):
-    # ... (exact same code as before) ...
     if activation == "relu":
         return F.relu
     if activation == "gelu":
@@ -223,7 +218,6 @@ def _get_activation_fn(activation):
 
 
 class MLP(nn.Module):
-    # ... (exact same code as before) ...
     def __init__(self, input_dim, hidden_dim, output_dim, num_layers):
         super().__init__()
         self.num_layers = num_layers
@@ -242,7 +236,6 @@ class MLP(nn.Module):
 class MGMMultiScaleMaskedTransformerDecoder(nn.Module):
     _version = 2
 
-    # ... (_load_from_state_dict is unchanged) ...
     def _load_from_state_dict(
         self,
         state_dict,
@@ -364,9 +357,11 @@ class MGMMultiScaleMaskedTransformerDecoder(nn.Module):
         pos_key: Optional[List[Tensor]] = None,
         mask=None,
     ):
-        assert len(x) == len(pos_2d) == self.num_feature_levels
+        # 保障与 PixelDecoder 的契约
+        assert len(x) == self.num_feature_levels, "输入特征层数与 decoder 配置不一致"
+        assert len(pos_2d) == self.num_feature_levels, "pos_2d 层数不匹配"
         if pos_key is not None:
-            assert len(pos_key) == len(x)
+            assert len(pos_key) == self.num_feature_levels, "pos_key 层数不匹配"
 
         src = []
         pos = []
@@ -438,9 +433,7 @@ class MGMMultiScaleMaskedTransformerDecoder(nn.Module):
         }
         return out
 
-    # forward_prediction_heads and _set_aux_loss are unchanged
     def forward_prediction_heads(self, output, mask_features, attn_mask_target_size):
-        # ... (exact same code as before) ...
         decoder_output = self.decoder_norm(output)
         decoder_output = decoder_output.transpose(0, 1)
         outputs_class = self.class_embed(decoder_output)
@@ -465,7 +458,6 @@ class MGMMultiScaleMaskedTransformerDecoder(nn.Module):
 
     @torch.jit.unused
     def _set_aux_loss(self, outputs_class, outputs_seg_masks):
-        # ... (exact same code as before) ...
         if self.mask_classification:
             return [
                 {"pred_logits": a, "pred_masks": b}

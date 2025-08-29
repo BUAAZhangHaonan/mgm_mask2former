@@ -2,71 +2,60 @@
 import torch
 from torch import nn
 from typing import Optional
-
 from detectron2.config import configurable
 
-
-@configurable
 class DepthPosEncoding(nn.Module):
     """
-    Learned positional encoding for depth maps.
-    Transforms a single-channel depth map into a high-dimensional embedding,
-    with added stability and normalization.
+    深度图位置编码（可学习 + MLP）。
+    1. 输入单通道深度 (B,1,H,W)（假设已标准化到[0,1]）
+    2. 通过 1x1 MLP 提升维度
+    3. 可学习缩放 alpha 控制整体幅值，避免主导二维位置编码
+    4. mask=True 的位置视为无效/填充区，置零后再做 log1p 变换
     """
 
+    @configurable
     def __init__(self, hidden_dim: int, beta: float = 10.0):
         super().__init__()
-        assert (
-            hidden_dim % 2 == 0
-        ), "hidden_dim must be even for sinusoidal-like embeddings"
+        assert hidden_dim % 2 == 0, "hidden_dim 必须为偶数"
         self.hidden_dim = hidden_dim
-        self.beta = beta  # A scaling factor for depth before log transform
-
-        # A simple MLP with normalization to process the depth map
+        self.beta = beta  # 深度缩放因子，用于 log1p(beta * d)
+        # 使用 GroupNorm(32, C) 替换 InstanceNorm，提升小 batch 稳定性
         self.mlp = nn.Sequential(
             nn.Conv2d(1, hidden_dim, kernel_size=1, bias=False),
-            nn.InstanceNorm2d(hidden_dim),
+            nn.GroupNorm(32, hidden_dim),
             nn.GELU(),
             nn.Conv2d(hidden_dim, hidden_dim, kernel_size=1, bias=False),
-            nn.InstanceNorm2d(hidden_dim),
+            nn.GroupNorm(32, hidden_dim),
         )
+        # 可学习缩放系数，限制深度位置编码对总位置编码的主导
+        self.alpha = nn.Parameter(torch.tensor(0.3))  # 初始化为 0.3
 
     @classmethod
     def from_config(cls, cfg):
         return {
             "hidden_dim": cfg.MODEL.MASK_FORMER.HIDDEN_DIM,
-            # beta could be added to config if needed, e.g., cfg.MODEL.DPE.BETA
             "beta": 10.0,
         }
 
-    def forward(
-        self, depth_raw: torch.Tensor, mask: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+    def forward(self, depth_raw: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
-        Args:
-            depth_raw (Tensor): Raw depth map, normalized to [0, 1]. Shape: [B, 1, H, W]
-            mask (Tensor, optional): Boolean padding mask. Shape: [B, H, W], True for padded areas.
-        Returns:
-            Tensor: The depth positional encoding. Shape: [B, hidden_dim, H, W]
+        参数:
+            depth_raw: (B,1,H,W) 归一化深度
+            mask: (B,H,W) 布尔张量, True 表示无效/填充区域(需要被置零)。
+        返回:
+            (B, hidden_dim, H, W) 深度位置编码
         """
-        assert (
-            depth_raw.dim() == 4 and depth_raw.shape[1] == 1
-        ), f"Expected depth_raw of shape [B, 1, H, W], got {depth_raw.shape}"
-
-        # Ensure computation is in float32 for stability
+        assert depth_raw.dim() == 4 and depth_raw.shape[1] == 1, f"期望输入 [B,1,H,W], 实际 {depth_raw.shape}"
         depth_float = depth_raw.float()
 
-        # Mask out padded areas before any transformation
         if mask is not None:
-            assert (
-                mask.dim() == 3
-            ), f"Expected mask of shape [B, H, W], got {mask.shape}"
-            depth_float = depth_float.clone()
-            depth_float[mask.unsqueeze(1)] = 0.0
+            assert mask.dim() == 3, f"mask 需为 [B,H,W], 实际 {mask.shape}"
+            # (~mask)=有效区域；无效区域清零，避免 log1p 幅值污染
+            depth_float = depth_float * (~mask).unsqueeze(1)
 
-        # Use log1p for better numerical stability with values in [0, 1]
+        # 数值稳定：log1p(beta * d)
         depth_transformed = torch.log1p(self.beta * depth_float)
 
         depth_embedding = self.mlp(depth_transformed)
-
-        return depth_embedding.to(depth_raw.dtype)  # Cast back to original dtype
+        # 乘以可学习缩放系数 alpha，避免覆盖其它位置编码分量
+        return (depth_embedding * self.alpha).to(depth_raw.dtype)
