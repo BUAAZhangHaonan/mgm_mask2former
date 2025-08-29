@@ -531,12 +531,25 @@ class MultiModalGatedFusion(nn.Module):
 
             # The entropy loss correctly encourages m to be binary.
             if self.noise_mask_weight > 0 and depth_noise_mask is not None:
-                bces = [
-                    F.binary_cross_entropy(
-                        m, 1.0 - _bilinear(depth_noise_mask.float(), m.shape[-2:])
+                bces = []
+                for m in m_maps.values():
+                    # 1. 上采样噪声掩码到当前特征图尺寸
+                    target_noise_mask = _bilinear(
+                        depth_noise_mask.float(), m.shape[-2:]
                     )
-                    for m in m_maps.values()
-                ]
+                    # 2. 对掩码做一次最大池化，将其影响范围扩大1像素
+                    #    这将噪声像素的影响扩展到周围1像素邻域，实现监督信号的软化
+                    #    避免模型在洞的边缘学习到过于陡峭的置信度变化，提高学习稳定性
+                    #    符合物理直觉：噪声像素周围的像素也可能不可靠，创造平滑过渡带
+                    #    零配置：kernel_size=3, padding=1是标准的1像素膨胀，无需调整参数
+                    #    零性能开销：3x3最大池化在现代GPU上几乎是瞬时的
+                    target_noise_mask_dilated = F.max_pool2d(
+                        target_noise_mask, kernel_size=3, stride=1, padding=1
+                    )
+                    # 3. 使用膨胀后的掩码作为监督目标
+                    bce = F.binary_cross_entropy(m, 1.0 - target_noise_mask_dilated)
+                    bces.append(bce)
+
                 if bces:
                     losses["loss_mgm_noise"] = (
                         self.noise_mask_weight * torch.stack(bces).mean()

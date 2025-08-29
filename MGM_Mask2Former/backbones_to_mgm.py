@@ -191,6 +191,26 @@ class Demo:
             img_tensor = tensor[0, 0].detach().cpu()
             img_arr_float = img_tensor.numpy()
 
+            # 归一化置信度图：将最小值映射到0，最大值映射到1，放大差异
+            # 这确保了整个动态范围被充分利用，提高可视化对比度
+            min_val = img_arr_float.min()
+            max_val = img_arr_float.max()
+            if max_val > min_val:
+                img_arr_float = (img_arr_float - min_val) / (max_val - min_val)
+            # 如果所有值相同（极少情况），保持原样或设为0.5
+
+            # 可视化置信度图：不同颜色代表置信度 m 的区别
+            # 置信度 m 范围：0.0 到 1.0（归一化后）
+            # - 低置信度 (0.0)：通常表示噪声或不可靠区域，模型倾向于使用RGB特征
+            # - 中等置信度 (0.5)：表示不确定区域，模型在RGB和深度特征间平衡
+            # - 高置信度 (1.0)：表示可信深度区域，模型主要使用深度特征
+            # 颜色映射逻辑：使用 matplotlib colormap 将标量值映射到颜色空间
+            # 例如 'jet' colormap：低值(蓝色) -> 中值(绿色/黄色) -> 高值(红色)
+            # 'viridis' colormap：低值(紫色) -> 中值(绿色) -> 高值(黄色)
+            # 'plasma' colormap：低值(紫色) -> 中值(粉色) -> 高值(黄色)
+            # 灰度模式：深色(黑色)表示低置信度，浅色(白色)表示高置信度
+            # 这样可以直观区分噪声区域(冷色/深色)和可信区域(暖色/浅色)
+
             # Choose visualization mode based on --colormap argument
             if self.args.colormap:
                 try:

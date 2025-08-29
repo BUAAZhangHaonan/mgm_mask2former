@@ -43,9 +43,9 @@ MODEL:
     SCALE_KEYS: ["res2", "res3", "res4", "res5"]
 
     PRIOR:
-      ENABLED: True                   # 总开关
+      ENABLED: False                   # 总开关
       USE_GRADIENT: True              # 先验逐项开关
-      USE_VARIANCE: False
+      USE_VARIANCE: True
       USE_VALID_HOLE: True
       USE_RGB_EDGE: False             # 前期建议关（最耗时）
       VAR_KERNEL: 5
@@ -129,7 +129,7 @@ DATALOADER:
 
 # RGB-D Input Configuration
 INPUT:
-  DATASET_ROOT: "/home/fuyx/zhn/mask2former/MGM_Mask2Former/input/dataset_test_0828"
+  DATASET_ROOT: "/home/fuyx/zhn/mask2former/MGM_Mask2Former/mgm_test_input"
   IMAGE_SIZE: 1024
   MIN_SCALE: 0.1
   MAX_SCALE: 2.0
