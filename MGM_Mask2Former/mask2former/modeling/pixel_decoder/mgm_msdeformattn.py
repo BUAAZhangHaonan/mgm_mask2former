@@ -173,11 +173,18 @@ class MSDeformAttnTransformerEncoder(nn.Module):
     def get_reference_points(spatial_shapes, valid_ratios, device):
         reference_points_list = []
         for lvl, (H_, W_) in enumerate(spatial_shapes):
-            ref_y, ref_x = torch.meshgrid(
-                torch.linspace(0.5, H_ - 0.5, H_, dtype=torch.float32, device=device),
-                torch.linspace(0.5, W_ - 0.5, W_, dtype=torch.float32, device=device),
-                indexing="ij",
-            )
+            # 兼容新旧 PyTorch meshgrid 接口
+            try:
+                ref_y, ref_x = torch.meshgrid(
+                    torch.linspace(0.5, H_ - 0.5, H_, dtype=torch.float32, device=device),
+                    torch.linspace(0.5, W_ - 0.5, W_, dtype=torch.float32, device=device),
+                    indexing="ij",
+                )
+            except TypeError:
+                ref_y, ref_x = torch.meshgrid(
+                    torch.linspace(0.5, H_ - 0.5, H_, dtype=torch.float32, device=device),
+                    torch.linspace(0.5, W_ - 0.5, W_, dtype=torch.float32, device=device),
+                )
             ref_y = ref_y.reshape(-1)[None] / (valid_ratios[:, None, lvl, 1] * H_)
             ref_x = ref_x.reshape(-1)[None] / (valid_ratios[:, None, lvl, 0] * W_)
             ref = torch.stack((ref_x, ref_y), -1)
@@ -400,77 +407,51 @@ class MGMMSDeformAttnPixelDecoder(nn.Module):
             if i < self.maskformer_num_feature_levels:
                 multi_scale_features.append(o)
 
-        # ====== 生成 2D 位置编码（对 padding_mask 先下采样后传入）======
+        # ====== 生成 2D 位置编码（移除 mask 传递，统一无 mask 调用）=====
         pos_2d_list = []
         for feature_level in multi_scale_features:
-            mask_i = None
-            if padding_mask is not None:
-                # 最近邻下采样后转 bool，True=无效
-                mask_i = (
-                    F.interpolate(
-                        padding_mask.unsqueeze(1).float(),
-                        size=feature_level.shape[-2:],
-                        mode="nearest",
-                    )
-                    .squeeze(1)
-                    .bool()
-                )
-            pos_2d_list.append(self.pe_layer(feature_level, mask_i))
+            pos_2d_list.append(self.pe_layer(feature_level))  # 不再传 mask
 
-        # ====== 计算 Key 位置编码（融合深度 + 置信度），仅在启用 DPE 且输入齐全时 ======
+        # ===== Key 位置编码 (融合深度/置信度) =====
         pos_key_list = None
         if self.dpe_enabled and depth_raw is not None and confidence_maps is not None:
             pos_key_list = []
             decoder_feature_names = self.decoder_level_names
-            # 计算全分辨率深度位置编码一次
+            # 深度位置编码（全分辨率）——对齐 dtype / device
             depth_pe_base = self.depth_pe(depth_raw, padding_mask)
-
-            assert len(multi_scale_features) == len(
-                decoder_feature_names
-            ), "特征层数量与记录的层级名不一致"
-
             for i, feature_level in enumerate(multi_scale_features):
                 target_shape = feature_level.shape[-2:]
                 feature_name = decoder_feature_names[i]
-
-                # --- 健壮性检查 ---
                 conf_map = confidence_maps.get(feature_name)
                 assert conf_map is not None, f"缺少特征 '{feature_name}' 的置信度图"
-                if conf_map.dim() == 3:  # (B,H,W) -> (B,1,H,W)
+                if conf_map.dim() == 3:
                     conf_map = conf_map.unsqueeze(1)
-                assert conf_map.shape[1] == 1, "置信度图必须是单通道"
-
-                # 插值：深度位置编码 & 置信度
+                assert conf_map.shape[1] == 1, "置信度图必须单通道"
                 depth_pe_scaled = F.interpolate(
-                    depth_pe_base,
+                    depth_pe_base.to(feature_level.device, feature_level.dtype),
                     size=target_shape,
                     mode="bilinear",
                     align_corners=False,
                 )
                 conf_map_scaled = F.interpolate(
-                    conf_map.to(feature_level.device).to(feature_level.dtype),
+                    conf_map.to(feature_level.device, feature_level.dtype),
                     size=target_shape,
                     mode="bilinear",
                     align_corners=False,
                 )
-
-                # 数值限制：置信度 clamp 到 [0,1]；深度位置编码 tanh 限幅
                 conf_map_clamped = conf_map_scaled.clamp(0.0, 1.0)
-                depth_pe_tanh = depth_pe_scaled.tanh()
-
-                # 融合：2D PE + (置信度 * 深度 PE)
-                pos_key = pos_2d_list[i] + conf_map_clamped * depth_pe_tanh
+                # 去掉 tanh，依赖 DepthPosEncoding 内部 alpha 控制幅度
+                pos_key = pos_2d_list[i] + conf_map_clamped * depth_pe_scaled
                 pos_key_list.append(pos_key)
-
+        # 形状 + device 断言
         for i, (feat, p2d) in enumerate(zip(multi_scale_features, pos_2d_list)):
             assert feat.shape[-2:] == p2d.shape[-2:], f"第{i}层: 2D位置编码形状不匹配"
+            assert feat.device == p2d.device, f"第{i}层: 2D位置编码与特征 device 不一致"
         if pos_key_list is not None:
-            assert len(pos_key_list) == len(
-                pos_2d_list
-            ), "pos_key_list 与 pos_2d_list 长度不一致"
+            assert len(pos_key_list) == len(pos_2d_list), "pos_key_list 长度不匹配"
             for i, (pk, p2d) in enumerate(zip(pos_key_list, pos_2d_list)):
-                assert pk.shape == p2d.shape, f"第{i}层: pos_key 与 pos_2d 形状不一致"
-
+                assert pk.shape == p2d.shape, f"第{i}层: pos_key 形状不匹配"
+                assert pk.device == p2d.device, f"第{i}层: pos_key device 不匹配"
         return (
             self.mask_features(out[-1]),
             out[0],

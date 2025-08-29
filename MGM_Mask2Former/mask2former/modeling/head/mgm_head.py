@@ -98,6 +98,12 @@ class MGMHead(nn.Module):
         return self.layers(features, confidence_maps, depth_raw, padding_mask, mask)
 
     def layers(self, features, confidence_maps, depth_raw, padding_mask, mask=None):
+        # confidence_maps 键完整性检查（若提供）
+        if confidence_maps is not None:
+            required = set(self.pixel_decoder.transformer_in_features)
+            available = set(confidence_maps.keys())
+            missing = required - available
+            assert not missing, f"confidence_maps 缺少必需键: {missing}"
         # 透传 padding_mask
         mask_features, _, multi_scale_features, pos_2d_list, pos_key_list = (
             self.pixel_decoder.forward_features(
@@ -115,7 +121,7 @@ class MGMHead(nn.Module):
             assert len(pos_key_list) == len(
                 pos_2d_list
             ), "pos_key_list 与 pos_2d_list 数量不一致"
-            
+
         # 调用 transformer 解码器
         predictions = self.predictor(
             multi_scale_features, mask_features, pos_2d_list, pos_key_list, mask

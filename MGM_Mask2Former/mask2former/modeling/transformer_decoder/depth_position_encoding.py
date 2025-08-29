@@ -4,6 +4,7 @@ from torch import nn
 from typing import Optional
 from detectron2.config import configurable
 
+
 class DepthPosEncoding(nn.Module):
     """
     深度图位置编码（可学习 + MLP）。
@@ -17,27 +18,35 @@ class DepthPosEncoding(nn.Module):
     def __init__(self, hidden_dim: int, beta: float = 10.0):
         super().__init__()
         assert hidden_dim % 2 == 0, "hidden_dim 必须为偶数"
+        # 动态 GN 组数：不超过32，且需整除
+        G = min(32, hidden_dim)
+        assert hidden_dim % G == 0, f"hidden_dim {hidden_dim} 不能被组数 {G} 整除"
         self.hidden_dim = hidden_dim
-        self.beta = beta  # 深度缩放因子，用于 log1p(beta * d)
-        # 使用 GroupNorm(32, C) 替换 InstanceNorm，提升小 batch 稳定性
+        self.beta = beta  # 可由配置注入
         self.mlp = nn.Sequential(
             nn.Conv2d(1, hidden_dim, kernel_size=1, bias=False),
-            nn.GroupNorm(32, hidden_dim),
+            nn.GroupNorm(G, hidden_dim),  # 动态组数
             nn.GELU(),
             nn.Conv2d(hidden_dim, hidden_dim, kernel_size=1, bias=False),
-            nn.GroupNorm(32, hidden_dim),
+            nn.GroupNorm(G, hidden_dim),
         )
-        # 可学习缩放系数，限制深度位置编码对总位置编码的主导
-        self.alpha = nn.Parameter(torch.tensor(0.3))  # 初始化为 0.3
+        # 通道级缩放 (C,1,1)，更细粒度控制尺度
+        self.alpha = nn.Parameter(torch.full((hidden_dim, 1, 1), 0.3))
 
     @classmethod
     def from_config(cls, cfg):
+        # 兼容无 BETA 字段的情况
+        beta = (
+            getattr(cfg.MODEL.DPE, "BETA", 10.0) if hasattr(cfg.MODEL, "DPE") else 10.0
+        )
         return {
             "hidden_dim": cfg.MODEL.MASK_FORMER.HIDDEN_DIM,
-            "beta": 10.0,
+            "beta": beta,
         }
 
-    def forward(self, depth_raw: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(
+        self, depth_raw: torch.Tensor, mask: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
         """
         参数:
             depth_raw: (B,1,H,W) 归一化深度
@@ -45,7 +54,9 @@ class DepthPosEncoding(nn.Module):
         返回:
             (B, hidden_dim, H, W) 深度位置编码
         """
-        assert depth_raw.dim() == 4 and depth_raw.shape[1] == 1, f"期望输入 [B,1,H,W], 实际 {depth_raw.shape}"
+        assert (
+            depth_raw.dim() == 4 and depth_raw.shape[1] == 1
+        ), f"期望输入 [B,1,H,W], 实际 {depth_raw.shape}"
         depth_float = depth_raw.float()
 
         if mask is not None:
@@ -57,5 +68,4 @@ class DepthPosEncoding(nn.Module):
         depth_transformed = torch.log1p(self.beta * depth_float)
 
         depth_embedding = self.mlp(depth_transformed)
-        # 乘以可学习缩放系数 alpha，避免覆盖其它位置编码分量
         return (depth_embedding * self.alpha).to(depth_raw.dtype)

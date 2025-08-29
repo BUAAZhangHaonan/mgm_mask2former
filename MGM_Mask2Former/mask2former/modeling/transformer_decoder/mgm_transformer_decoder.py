@@ -394,11 +394,11 @@ class MGMMultiScaleMaskedTransformerDecoder(nn.Module):
             level_index = i % self.num_feature_levels
 
             # Key PE is either from pos_key list or defaults to the pos_2d list
-            current_key_pos = (
-                pos_key[level_index].flatten(2).permute(2, 0, 1)
-                if pos_key is not None
-                else None
-            )
+            current_key_pos = None
+            if pos_key is not None:
+                key_pos_i = pos_key[level_index]
+                if key_pos_i is not None:
+                    current_key_pos = key_pos_i.flatten(2).permute(2, 0, 1)
 
             attn_mask[torch.where(attn_mask.sum(-1) == attn_mask.shape[-1])] = False
             output = self.transformer_cross_attention_layers[i](

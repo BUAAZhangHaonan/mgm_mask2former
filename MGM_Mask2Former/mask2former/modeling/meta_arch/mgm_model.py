@@ -15,6 +15,8 @@ from detectron2.structures import (
     Boxes,
     ImageList,
     Instances,
+    BitMasks,
+    PolygonMasks,
 )
 from detectron2.utils.memory import retry_if_cuda_oom
 from detectron2.layers import ShapeSpec
@@ -195,17 +197,14 @@ class MGMMaskFormer(nn.Module):
                 targets = None
 
             losses = self.criterion(outputs, targets)
-
-            # 对 MGM 模块损失加权（中风险3）
-            # 注意：需在 mgm.py 中移除内部的 * weight，避免重复
-            for k, v in mgm_losses.items():
-                if k == "loss_mgm_entropy":
-                    mgm_losses[k] = v * self.mgm.loss_entropy_weight
-                elif k == "loss_mgm_noise":
-                    mgm_losses[k] = v * self.mgm.noise_mask_weight
-            losses.update(mgm_losses)
-
-            # 仅对 criterion 维护的监督损失应用其权重表
+            # MGM 原始损失 -> 加权后放入总 losses，不修改 mgm_losses 原始字典
+            if "loss_mgm_entropy" in mgm_losses:
+                w = getattr(self.mgm, "loss_entropy_weight", 1.0)
+                losses["loss_mgm_entropy"] = mgm_losses["loss_mgm_entropy"] * w
+            if "loss_mgm_noise" in mgm_losses:
+                w = getattr(self.mgm, "noise_mask_weight", 1.0)
+                losses["loss_mgm_noise"] = mgm_losses["loss_mgm_noise"] * w
+            # 仅对 criterion 监督项应用 weight_dict
             for k in list(losses.keys()):
                 if k in self.criterion.weight_dict:
                     losses[k] *= self.criterion.weight_dict[k]
@@ -258,12 +257,23 @@ class MGMMaskFormer(nn.Module):
         new_targets = []
         for targets_per_image in targets:
             gt_masks = targets_per_image.gt_masks
+            # 统一转 tensor (H,W) -> (N,H,W)
+            if isinstance(gt_masks, BitMasks):
+                mask_tensor = gt_masks.tensor
+            elif isinstance(gt_masks, PolygonMasks):
+                # 生成与最终 pad 尺寸一致的 bitmask
+                bitmasks = gt_masks.to_bitmasks(h_pad, w_pad)
+                mask_tensor = bitmasks.tensor
+            else:
+                # 兜底：假设已是 (N,H,W) tensor
+                mask_tensor = gt_masks
             padded_masks = torch.zeros(
-                (gt_masks.shape[0], h_pad, w_pad),
-                dtype=gt_masks.dtype,
-                device=gt_masks.device,
+                (mask_tensor.shape[0], h_pad, w_pad),
+                dtype=mask_tensor.dtype,
+                device=mask_tensor.device,
             )
-            padded_masks[:, : gt_masks.shape[1], : gt_masks.shape[2]] = gt_masks
+            h_src, w_src = mask_tensor.shape[-2:]
+            padded_masks[:, :h_src, :w_src] = mask_tensor
             new_targets.append(
                 {"labels": targets_per_image.gt_classes, "masks": padded_masks}
             )
@@ -348,7 +358,9 @@ class MGMMaskFormer(nn.Module):
             mask_pred = mask_pred[keep]
         result = Instances(image_size)
         result.pred_masks = (mask_pred > 0).float()
-        result.pred_boxes = Boxes(torch.zeros(mask_pred.size(0), 4))
+        result.pred_boxes = Boxes(
+            torch.zeros(mask_pred.size(0), 4, device=mask_pred.device)
+        )  # 设备对齐
         mask_scores_per_image = (
             mask_pred.sigmoid().flatten(1) * result.pred_masks.flatten(1)
         ).sum(1) / (result.pred_masks.flatten(1).sum(1) + 1e-6)
