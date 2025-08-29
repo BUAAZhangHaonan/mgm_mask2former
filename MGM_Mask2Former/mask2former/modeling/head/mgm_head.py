@@ -100,7 +100,9 @@ class MGMHead(nn.Module):
     def layers(self, features, confidence_maps, depth_raw, padding_mask, mask=None):
         # confidence_maps 键完整性检查（若提供）
         if confidence_maps is not None:
-            required = set(self.pixel_decoder.transformer_in_features)
+            required = set(
+                self.pixel_decoder.decoder_level_names
+            )  # 使用 decoder_level_names 而非 transformer_in_features
             available = set(confidence_maps.keys())
             missing = required - available
             assert not missing, f"confidence_maps 缺少必需键: {missing}"

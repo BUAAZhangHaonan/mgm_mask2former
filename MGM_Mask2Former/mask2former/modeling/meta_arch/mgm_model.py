@@ -155,6 +155,11 @@ class MGMMaskFormer(nn.Module):
         depths = [x["depth"].to(self.device) for x in batched_inputs]
         depths = ImageList.from_tensors(depths, self.size_divisibility)
 
+        # 确保 RGB 和 Depth 尺寸一致
+        assert (
+            images.tensor.shape[-2:] == depths.tensor.shape[-2:]
+        ), "RGB 和 Depth 的填充尺寸不一致"
+
         depth_raw = depths.tensor
         depth_noise_mask = None
         if "depth_noise_mask" in batched_inputs[0]:

@@ -176,14 +176,22 @@ class MSDeformAttnTransformerEncoder(nn.Module):
             # 兼容新旧 PyTorch meshgrid 接口
             try:
                 ref_y, ref_x = torch.meshgrid(
-                    torch.linspace(0.5, H_ - 0.5, H_, dtype=torch.float32, device=device),
-                    torch.linspace(0.5, W_ - 0.5, W_, dtype=torch.float32, device=device),
+                    torch.linspace(
+                        0.5, H_ - 0.5, H_, dtype=torch.float32, device=device
+                    ),
+                    torch.linspace(
+                        0.5, W_ - 0.5, W_, dtype=torch.float32, device=device
+                    ),
                     indexing="ij",
                 )
             except TypeError:
                 ref_y, ref_x = torch.meshgrid(
-                    torch.linspace(0.5, H_ - 0.5, H_, dtype=torch.float32, device=device),
-                    torch.linspace(0.5, W_ - 0.5, W_, dtype=torch.float32, device=device),
+                    torch.linspace(
+                        0.5, H_ - 0.5, H_, dtype=torch.float32, device=device
+                    ),
+                    torch.linspace(
+                        0.5, W_ - 0.5, W_, dtype=torch.float32, device=device
+                    ),
                 )
             ref_y = ref_y.reshape(-1)[None] / (valid_ratios[:, None, lvl, 1] * H_)
             ref_x = ref_x.reshape(-1)[None] / (valid_ratios[:, None, lvl, 0] * W_)
@@ -256,19 +264,25 @@ class MGMMSDeformAttnPixelDecoder(nn.Module):
         if self.transformer_num_feature_levels > 1:
             input_proj_list = []
             for in_channels in transformer_in_channels[::-1]:
+                # 动态计算 GN 组数
+                G = min(32, conv_dim)
+                assert conv_dim % G == 0, f"conv_dim {conv_dim} 必须能被组数 {G} 整除"
                 input_proj_list.append(
                     nn.Sequential(
                         nn.Conv2d(in_channels, conv_dim, kernel_size=1),
-                        nn.GroupNorm(32, conv_dim),
+                        nn.GroupNorm(G, conv_dim),
                     )
                 )
             self.input_proj = nn.ModuleList(input_proj_list)
         else:
+            # 动态计算 GN 组数
+            G = min(32, conv_dim)
+            assert conv_dim % G == 0, f"conv_dim {conv_dim} 必须能被组数 {G} 整除"
             self.input_proj = nn.ModuleList(
                 [
                     nn.Sequential(
                         nn.Conv2d(transformer_in_channels[-1], conv_dim, kernel_size=1),
-                        nn.GroupNorm(32, conv_dim),
+                        nn.GroupNorm(G, conv_dim),
                     )
                 ]
             )
@@ -346,10 +360,10 @@ class MGMMSDeformAttnPixelDecoder(nn.Module):
         ret["transformer_in_features"] = (
             cfg.MODEL.SEM_SEG_HEAD.DEFORMABLE_TRANSFORMER_ENCODER_IN_FEATURES
         )
-        ret["common_stride"] = (
-            cfg.MODEL.SEM_SEG_HEAD.COMMON_STRIDE
+        ret["common_stride"] = cfg.MODEL.SEM_SEG_HEAD.COMMON_STRIDE
+        ret["dpe_enabled"] = bool(
+            getattr(getattr(cfg.MODEL, "DPE", object()), "ENABLED", False)
         )
-        ret["dpe_enabled"] = cfg.MODEL.DPE.ENABLED
         return ret
 
     @autocast(device_type="cuda", enabled=False)
