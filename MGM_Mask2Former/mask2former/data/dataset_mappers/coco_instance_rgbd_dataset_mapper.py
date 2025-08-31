@@ -364,7 +364,53 @@ class COCOInstanceRGBDDatasetMapper:
             ]
             instances = utils.annotations_to_instances(annos, image_shape, mask_format="bitmask")
             if instances.has("gt_masks") and len(instances) > 0:
-                instances.gt_boxes = Boxes(instances.gt_masks.get_bounding_boxes())
+                # 获取边界框，处理可能的维度问题
+                try:
+                    # 直接从mask计算边界框，避免使用get_bounding_boxes方法
+                    masks = instances.gt_masks
+                    if hasattr(masks, 'tensor'):
+                        mask_tensor = masks.tensor
+                    else:
+                        mask_tensor = torch.as_tensor(masks)
+                    
+                    # 确保mask_tensor是bool类型
+                    if mask_tensor.dtype != torch.bool:
+                        mask_tensor = mask_tensor.bool()
+                    
+                    # 计算每个mask的边界框
+                    num_masks = mask_tensor.shape[0]
+                    bounding_boxes_list = []
+                    
+                    for i in range(num_masks):
+                        mask = mask_tensor[i]
+                        # 找到mask中为True的像素坐标
+                        coords = torch.nonzero(mask, as_tuple=False)
+                        
+                        if coords.numel() == 0:
+                            # 如果mask是空的，使用默认边界框
+                            bbox = torch.tensor([0.0, 0.0, 1.0, 1.0])
+                        else:
+                            # 计算边界框 [x1, y1, x2, y2]
+                            x_min = coords[:, 1].min().float()
+                            y_min = coords[:, 0].min().float()
+                            x_max = coords[:, 1].max().float()
+                            y_max = coords[:, 0].max().float()
+                            bbox = torch.tensor([x_min, y_min, x_max, y_max])
+                        
+                        bounding_boxes_list.append(bbox)
+                    
+                    # 将所有边界框堆叠成一个tensor
+                    if bounding_boxes_list:
+                        bounding_boxes = torch.stack(bounding_boxes_list, dim=0)
+                        instances.gt_boxes = Boxes(bounding_boxes)
+                    else:
+                        # 如果没有有效的边界框，跳过设置
+                        instances.gt_boxes = Boxes(torch.empty((0, 4)))
+                        
+                except Exception as e:
+                    # 如果处理失败，跳过gt_boxes的设置，只使用gt_masks
+                    print(f"Warning: Failed to process bounding boxes: {e}")
+                    # 不设置gt_boxes，让后续处理决定如何处理
             instances = utils.filter_empty_instances(instances)
             dataset_dict["instances"] = instances
 
