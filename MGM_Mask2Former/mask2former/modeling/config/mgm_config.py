@@ -14,6 +14,8 @@ def add_mgm_config(cfg: CN):
     cfg.SOLVER.OPTIMIZER = "ADAMW"
     cfg.SOLVER.BACKBONE_MULTIPLIER = 0.1
 
+    cfg.MODEL.FINETUNE_WEIGHTS = ""
+
     # -------------------------
     # Mask2Former 核心配置
     # -------------------------
@@ -224,5 +226,5 @@ def add_mgm_config(cfg: CN):
             400, 500, 600, 640, 700, 900, 1000, 1100, 1200, 1300, 1400, 1800, 800)
         cfg.TEST.AUG.MAX_SIZE = 4000
         cfg.TEST.AUG.FLIP = True
-        
+
     cfg.VERSION = 2.0

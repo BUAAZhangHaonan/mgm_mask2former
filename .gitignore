@@ -16,6 +16,10 @@
 .idea
 .vscode
 
+input
+output
+pretrained-checkpoint
+
 mgm_test_input
 mgm_test_output_random
 mgm_test_output_real
