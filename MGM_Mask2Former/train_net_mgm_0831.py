@@ -384,7 +384,6 @@ def setup(args):
         logger.info(f"  RGB Backbone: {cfg.MODEL.RGB_BACKBONE.NAME}")
         logger.info(f"  Depth Backbone: {cfg.MODEL.DEPTH_BACKBONE.NAME}")
         logger.info(f"  MGM Enabled: {cfg.MODEL.MGM.ENABLED}")
-        logger.info(f"  MGM Shared: {cfg.MODEL.MGM.SHARED}")
         logger.info(f"  MGM Residual Alpha: {cfg.MODEL.MGM.RESIDUAL_ALPHA}")
 
     return cfg

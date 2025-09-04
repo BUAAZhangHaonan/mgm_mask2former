@@ -1,0 +1,7 @@
+# overlay_rgb_only.yaml
+_BASE_: ../mgm_swin_convnext_tiny.yaml
+MODEL:
+  MGM:
+    ENABLED: False
+  DPE:
+    ENABLED: False

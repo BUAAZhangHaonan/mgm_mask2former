@@ -113,11 +113,12 @@ def add_mgm_config(cfg: CN):
     # -------------------------
     cfg.MODEL.DPE = CN()
     cfg.MODEL.DPE.ENABLED = True
+    
     cfg.MODEL.BOUNDARY = CN()
     cfg.MODEL.BOUNDARY.ENABLED = False
+    
     cfg.MODEL.MGM = CN()
     cfg.MODEL.MGM.ENABLED = True
-    cfg.MODEL.MGM.SHARED = True
     cfg.MODEL.MGM.RESIDUAL_ALPHA = 0.05
     cfg.MODEL.MGM.LOSS_ENTROPY_W = 0.01
     cfg.MODEL.MGM.TEMP_INIT = 1.5

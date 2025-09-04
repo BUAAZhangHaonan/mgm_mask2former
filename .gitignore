@@ -18,7 +18,8 @@
 
 input
 output
-pretrained-checkpoint
+MGM_Mask2Former/pretrained-checkpoint
+MGM_Mask2Former/predict_test
 
 mgm_test_input
 mgm_test_output_random
