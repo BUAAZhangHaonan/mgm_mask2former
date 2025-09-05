@@ -220,6 +220,10 @@ class Trainer(DefaultTrainer):
         # RGB-D instance segmentation dataset mapper
         elif cfg.INPUT.DATASET_MAPPER_NAME == "coco_instance_lsj_rgbd":
             mapper = COCOInstanceRGBDDatasetMapper(cfg, True)
+            if cfg.INPUT.NOISE_MASK.ENABLED and cfg.MODEL.MGM.NOISE_MASK_WEIGHT > 0:
+                logging.getLogger(__name__).info(
+                    "Using depth noise mask for weak supervision"
+                )
             return build_detection_train_loader(cfg, mapper=mapper)
         else:
             mapper = None

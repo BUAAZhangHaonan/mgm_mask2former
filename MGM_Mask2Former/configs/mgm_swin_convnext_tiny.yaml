@@ -159,6 +159,10 @@ INPUT:
     DROP_PROB: 0.05
     DROP_VAL: 0.0
 
+  NOISE_MASK:
+    ENABLED: True
+    CHECK_DIR: True
+
 # 求解器配置
 SOLVER:
   IMS_PER_BATCH: 1

@@ -20,7 +20,9 @@ def add_mgm_config(cfg: CN):
     # Mask2Former 核心配置
     # -------------------------
     cfg.MODEL.MASK_FORMER = CN()
-    cfg.MODEL.MASK_FORMER.TRANSFORMER_DECODER_NAME = "MGMMultiScaleMaskedTransformerDecoder"
+    cfg.MODEL.MASK_FORMER.TRANSFORMER_DECODER_NAME = (
+        "MGMMultiScaleMaskedTransformerDecoder"
+    )
     cfg.MODEL.MASK_FORMER.TRANSFORMER_IN_FEATURE = "multi_scale_pixel_decoder"
     cfg.MODEL.MASK_FORMER.DEEP_SUPERVISION = True
     cfg.MODEL.MASK_FORMER.NO_OBJECT_WEIGHT = 0.1
@@ -67,7 +69,10 @@ def add_mgm_config(cfg: CN):
     cfg.MODEL.SEM_SEG_HEAD.PIXEL_DECODER_NAME = "MGMMSDeformAttnPixelDecoder"
     cfg.MODEL.SEM_SEG_HEAD.IN_FEATURES = ["res2", "res3", "res4", "res5"]
     cfg.MODEL.SEM_SEG_HEAD.DEFORMABLE_TRANSFORMER_ENCODER_IN_FEATURES = [
-        "res3", "res4", "res5"]
+        "res3",
+        "res4",
+        "res5",
+    ]
     cfg.MODEL.SEM_SEG_HEAD.DEFORMABLE_TRANSFORMER_ENCODER_N_POINTS = 4
     cfg.MODEL.SEM_SEG_HEAD.DEFORMABLE_TRANSFORMER_ENCODER_N_HEADS = 8
     cfg.MODEL.SEM_SEG_HEAD.COMMON_STRIDE = 4
@@ -113,10 +118,10 @@ def add_mgm_config(cfg: CN):
     # -------------------------
     cfg.MODEL.DPE = CN()
     cfg.MODEL.DPE.ENABLED = True
-    
+
     cfg.MODEL.BOUNDARY = CN()
     cfg.MODEL.BOUNDARY.ENABLED = False
-    
+
     cfg.MODEL.MGM = CN()
     cfg.MODEL.MGM.ENABLED = True
     cfg.MODEL.MGM.RESIDUAL_ALPHA = 0.05
@@ -129,25 +134,25 @@ def add_mgm_config(cfg: CN):
     cfg.MODEL.MGM.NOISE_MASK_WEIGHT = 0.0
     cfg.MODEL.MGM.HIDDEN_DIM = 256
     cfg.MODEL.MGM.FEATURE_DIMS = [96, 192, 384, 768]
-    cfg.MODEL.MGM.SCALE_KEYS = ["res2","res3","res4","res5"]
+    cfg.MODEL.MGM.SCALE_KEYS = ["res2", "res3", "res4", "res5"]
     cfg.MODEL.MGM.POST_FUSE_NORM = True
 
     # MGM 归一化方法配置
     cfg.MODEL.MGM.ROBUST_NORM = CN()
     cfg.MODEL.MGM.ROBUST_NORM.ENABLED = False
-    cfg.MODEL.MGM.ROBUST_NORM.METHOD  = "minmax"  # or "quantile"
+    cfg.MODEL.MGM.ROBUST_NORM.METHOD = "minmax"  # or "quantile"
 
     # MGM 深度先验参数配置
     cfg.MODEL.MGM.PRIOR = CN()
     cfg.MODEL.MGM.PRIOR.ENABLED = True
-    cfg.MODEL.MGM.PRIOR.USE_GRADIENT   = True
-    cfg.MODEL.MGM.PRIOR.USE_VARIANCE   = True
+    cfg.MODEL.MGM.PRIOR.USE_GRADIENT = True
+    cfg.MODEL.MGM.PRIOR.USE_VARIANCE = True
     cfg.MODEL.MGM.PRIOR.USE_VALID_HOLE = True
-    cfg.MODEL.MGM.PRIOR.USE_RGB_EDGE   = False
+    cfg.MODEL.MGM.PRIOR.USE_RGB_EDGE = False
     cfg.MODEL.MGM.PRIOR.VAR_KERNEL = 5
     cfg.MODEL.MGM.PRIOR.Z_MIN = 0.0
     cfg.MODEL.MGM.PRIOR.Z_MAX = 1.0
-    cfg.MODEL.MGM.PRIOR.COMPUTE_ON = "res3"   # "full"/"res2"/"res3"/"res4"/"res5"
+    cfg.MODEL.MGM.PRIOR.COMPUTE_ON = "res3"  # "full"/"res2"/"res3"/"res4"/"res5"
 
     # RGB Input Pixel Mean/Std
     cfg.MODEL.PIXEL_MEAN = [123.675, 116.280, 103.530]
@@ -158,7 +163,7 @@ def add_mgm_config(cfg: CN):
     # -------------------------
 
     # 数据集根目录
-    cfg.INPUT.DATASET_ROOT = None #在训练脚本入口指定
+    cfg.INPUT.DATASET_ROOT = None  # 在训练脚本入口指定
 
     # LSJ 几何增强（RGB & Depth 同步）
     cfg.INPUT.IMAGE_SIZE = 1024
@@ -174,25 +179,30 @@ def add_mgm_config(cfg: CN):
     # RGB 光度增强（仅作用于 RGB）
     cfg.INPUT.RGB_PHOTO_AUG = CN()
     cfg.INPUT.RGB_PHOTO_AUG.ENABLED = False
-    cfg.INPUT.RGB_PHOTO_AUG.BRIGHTNESS = 0.0   # [0,1] 建议0.2起
-    cfg.INPUT.RGB_PHOTO_AUG.CONTRAST = 0.0   # [0,1]
-    cfg.INPUT.RGB_PHOTO_AUG.SATURATION = 0.0   # [0,1]
-    cfg.INPUT.RGB_PHOTO_AUG.HUE = 0.0   # [0,0.5]
+    cfg.INPUT.RGB_PHOTO_AUG.BRIGHTNESS = 0.0  # [0,1] 建议0.2起
+    cfg.INPUT.RGB_PHOTO_AUG.CONTRAST = 0.0  # [0,1]
+    cfg.INPUT.RGB_PHOTO_AUG.SATURATION = 0.0  # [0,1]
+    cfg.INPUT.RGB_PHOTO_AUG.HUE = 0.0  # [0,0.5]
 
     # 深度数据读取/归一化/裁剪/噪声
-    cfg.INPUT.DEPTH_FORMAT = "I"        # 常见uint16
-    cfg.INPUT.DEPTH_SCALE = 0.001      # mm->m 的默认换算
-    cfg.INPUT.DEPTH_SHIFT = 0.0        # 有些相机需要整体平移
-    cfg.INPUT.DEPTH_CLIP_MIN = 0.0      # 单位：米
+    cfg.INPUT.DEPTH_FORMAT = "I"  # 常见uint16
+    cfg.INPUT.DEPTH_SCALE = 0.001  # mm->m 的默认换算
+    cfg.INPUT.DEPTH_SHIFT = 0.0  # 有些相机需要整体平移
+    cfg.INPUT.DEPTH_CLIP_MIN = 0.0  # 单位：米
     cfg.INPUT.DEPTH_CLIP_MAX = 1.0
-    cfg.INPUT.DEPTH_NORM = "minmax"   # ["none", "minmax", [min, max]]
+    cfg.INPUT.DEPTH_NORM = "minmax"  # ["none", "minmax", [min, max]]
 
     cfg.INPUT.DEPTH_NOISE = CN()
     cfg.INPUT.DEPTH_NOISE.ENABLED = False
-    cfg.INPUT.DEPTH_NOISE.GAUSSIAN_STD = 0.0    # 加性高斯
-    cfg.INPUT.DEPTH_NOISE.SPECKLE_STD = 0.0    # 乘性散斑
-    cfg.INPUT.DEPTH_NOISE.DROP_PROB = 0.0    # 随机丢深度比例
-    cfg.INPUT.DEPTH_NOISE.DROP_VAL = 0.0    # 丢失填充值（0常见）
+    cfg.INPUT.DEPTH_NOISE.GAUSSIAN_STD = 0.0  # 加性高斯
+    cfg.INPUT.DEPTH_NOISE.SPECKLE_STD = 0.0  # 乘性散斑
+    cfg.INPUT.DEPTH_NOISE.DROP_PROB = 0.0  # 随机丢深度比例
+    cfg.INPUT.DEPTH_NOISE.DROP_VAL = 0.0  # 丢失填充值（0常见）
+
+    # Depth noise mask supervision
+    cfg.INPUT.NOISE_MASK = CN()
+    cfg.INPUT.NOISE_MASK.ENABLED = False
+    cfg.INPUT.NOISE_MASK.CHECK_DIR = True
 
     # 保留原 mask2former 数据增强开关
     cfg.INPUT.COLOR_AUG_SSD = False
@@ -205,7 +215,7 @@ def add_mgm_config(cfg: CN):
     # -------------------------
     # 数据加载器配置
     # -------------------------
-    if not hasattr(cfg, 'DATALOADER'):
+    if not hasattr(cfg, "DATALOADER"):
         cfg.DATALOADER = CN()
     cfg.DATALOADER.FILTER_EMPTY_ANNOTATIONS = True
     cfg.DATALOADER.NUM_WORKERS = 4
@@ -220,11 +230,24 @@ def add_mgm_config(cfg: CN):
     # -------------------------
     # 测试配置
     # -------------------------
-    if not hasattr(cfg.TEST, 'AUG'):
+    if not hasattr(cfg.TEST, "AUG"):
         cfg.TEST.AUG = CN()
         cfg.TEST.AUG.ENABLED = False
         cfg.TEST.AUG.MIN_SIZES = (
-            400, 500, 600, 640, 700, 900, 1000, 1100, 1200, 1300, 1400, 1800, 800)
+            400,
+            500,
+            600,
+            640,
+            700,
+            900,
+            1000,
+            1100,
+            1200,
+            1300,
+            1400,
+            1800,
+            800,
+        )
         cfg.TEST.AUG.MAX_SIZE = 4000
         cfg.TEST.AUG.FLIP = True
 

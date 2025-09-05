@@ -33,11 +33,17 @@ def _build_geom_transforms(cfg, is_train: bool):
                 vertical=cfg.INPUT.RANDOM_FLIP == "vertical",
             )
         )
-    augs.extend([
-        T.ResizeScale(min_scale=min_scale, max_scale=max_scale,
-                      target_height=image_size, target_width=image_size),
-        T.FixedSizeCrop(crop_size=(image_size, image_size)),
-    ])
+    augs.extend(
+        [
+            T.ResizeScale(
+                min_scale=min_scale,
+                max_scale=max_scale,
+                target_height=image_size,
+                target_width=image_size,
+            ),
+            T.FixedSizeCrop(crop_size=(image_size, image_size)),
+        ]
+    )
     return augs
 
 
@@ -121,6 +127,7 @@ def _normalize_and_augment_depth(depth: np.ndarray, cfg) -> np.ndarray:
 
     return norm.astype(np.float32)
 
+
 def _read_depth_npy(file_name: str) -> np.ndarray:
     """读取 .npy/.npz 深度数组，返回 HxWx1 float32"""
     arr = np.load(file_name, allow_pickle=False)
@@ -179,10 +186,14 @@ def _relpath_under_images(rgb_abs_path: str, dataset_root: str) -> str:
     try:
         rel = os.path.relpath(rgb_abs_path, images_root)
     except Exception as e:
-        raise ValueError(f"RGB path -> images relpath failed: {rgb_abs_path} vs {images_root}: {e}")
+        raise ValueError(
+            f"RGB path -> images relpath failed: {rgb_abs_path} vs {images_root}: {e}"
+        )
 
     if rel.startswith(".."):
-        raise ValueError(f"RGB path is not under DATASET_ROOT/images: {rgb_abs_path} (root={images_root})")
+        raise ValueError(
+            f"RGB path is not under DATASET_ROOT/images: {rgb_abs_path} (root={images_root})"
+        )
     return rel
 
 
@@ -196,7 +207,24 @@ def _rgb_to_depth_npy_path(rgb_abs_path: str, dataset_root: str) -> str:
     cand_npz = os.path.splitext(cand)[0] + ".npz"
     if os.path.isfile(cand_npz):
         return cand_npz
-    raise FileNotFoundError(f"Depth file not found for '{rgb_abs_path}'. Tried:\n  {cand}\n  {cand_npz}")
+    raise FileNotFoundError(
+        f"Depth file not found for '{rgb_abs_path}'. Tried:\n  {cand}\n  {cand_npz}"
+    )
+
+
+def _rgb_to_depth_noise_npy_path(rgb_abs_path: str, dataset_root: str) -> str:
+    """DATASET_ROOT/depth/depth_noise_npy/<split>/<same_name>.npy（或 .npz）"""
+    rel = _relpath_under_images(rgb_abs_path, dataset_root)
+    rel_no_ext = os.path.splitext(rel)[0]
+    cand = os.path.join(dataset_root, "depth", "depth_noise_npy", rel_no_ext + ".npy")
+    if os.path.isfile(cand):
+        return cand
+    cand_npz = os.path.splitext(cand)[0] + ".npz"
+    if os.path.isfile(cand_npz):
+        return cand_npz
+    raise FileNotFoundError(
+        f"Noisy depth file not found for '{rgb_abs_path}'. Tried:\n  {cand}\n  {cand_npz}"
+    )
 
 
 def _rgb_to_noise_mask_path(rgb_abs_path: str, dataset_root: str) -> str:
@@ -236,7 +264,7 @@ class COCOInstanceRGBDDatasetMapper:
         image_format: str,
         depth_format: str = "I",  # 兼容保留，未使用
         cfg=None,
-        dataset_root: str,        # 必填：只用这一项
+        dataset_root: str,  # 必填：只用这一项
     ):
         self.is_train = is_train
         self.tfm_gens = tfm_gens
@@ -256,7 +284,9 @@ class COCOInstanceRGBDDatasetMapper:
             self.noise_mask_check_dir = bool(getattr(nm_cfg, "CHECK_DIR", True))
 
         self.noise_mask_available = False
-        self.noise_mask_root = os.path.join(self.dataset_root, "depth", "depth_noise_mask")
+        self.noise_mask_root = os.path.join(
+            self.dataset_root, "depth", "depth_noise_mask"
+        )
 
         if self.noise_mask_enabled:
             if self.noise_mask_check_dir:
@@ -287,12 +317,16 @@ class COCOInstanceRGBDDatasetMapper:
         tfm_gens = _build_geom_transforms(cfg, is_train)
         rgb_format = cfg.INPUT.FORMAT
         if rgb_format not in ["RGB", "BGR"]:
-            logging.getLogger(__name__).warning(f"Invalid RGB format {rgb_format}, using RGB")
+            logging.getLogger(__name__).warning(
+                f"Invalid RGB format {rgb_format}, using RGB"
+            )
             rgb_format = "RGB"
 
         dataset_root = getattr(cfg.INPUT, "DATASET_ROOT", None)
         if not dataset_root:
-            raise ValueError("cfg.INPUT.DATASET_ROOT must be set (absolute path to dataset root).")
+            raise ValueError(
+                "cfg.INPUT.DATASET_ROOT must be set (absolute path to dataset root)."
+            )
 
         return {
             "is_train": is_train,
@@ -312,21 +346,36 @@ class COCOInstanceRGBDDatasetMapper:
         if self.is_train:
             image = _apply_rgb_photometric(image, self.cfg)
 
-        # --- 读取 Depth (NPY/NPZ) ---
-        rgb_path = dataset_dict["file_name"]  # 由 register_coco_instances 组成的绝对路径
-        depth_path = _rgb_to_depth_npy_path(rgb_path, self.dataset_root)
-        depth = _read_depth_npy(depth_path)
-        depth = _normalize_and_augment_depth(depth, self.cfg)
+        rgb_path = dataset_dict["file_name"]
+        noise_arr = None
+        nm_path = None
 
-        # --- 读取 Noise Mask（可选）---
+        # --- 2. 【新逻辑】首先尝试定位噪声掩码文件 ---
+        # 如果噪声掩码功能是开启的，就去找对应的文件路径
         if self.noise_mask_enabled and self.noise_mask_available:
             try:
+                # 如果找到了，nm_path 会是有效路径，比如 '.../depth_noise_mask/train/001.png'
                 nm_path = _rgb_to_noise_mask_path(rgb_path, self.dataset_root)
-                noise_arr = _read_noise_mask_any(nm_path)  # HxWx1, float32 in {0,1}
             except FileNotFoundError:
-                noise_arr = None
+                # 如果没找到，nm_path 会是 None，这很正常
+                nm_path = None
+
+        # --- 3. 【新逻辑】根据是否找到噪声掩码，来决定从哪里加载深度图 ---
+        if nm_path:
+            # 情况A：找到了噪声掩码 (nm_path 不为 None)
+            # 我们就从 'depth_noise_npy' 目录加载深度图
+            depth_path = _rgb_to_depth_noise_npy_path(rgb_path, self.dataset_root)
+            depth = _read_depth_npy(depth_path)
+            # 同时，加载这个找到的噪声掩码
+            noise_arr = _read_noise_mask_any(nm_path)
         else:
-            noise_arr = None
+            # 情况B：没找到噪声掩码 (nm_path 为 None)
+            # 我们就按原来的逻辑，从 'depth_npy' 目录加载深度图
+            depth_path = _rgb_to_depth_npy_path(rgb_path, self.dataset_root)
+            depth = _read_depth_npy(depth_path)
+            # 此时 noise_arr 保持为 None
+
+        depth = _normalize_and_augment_depth(depth, self.cfg)
 
         # --- 同步几何增强（RGB/Depth/Mask 一致）---
         image, transforms = T.apply_transform_gens(self.tfm_gens, image)
@@ -342,14 +391,22 @@ class COCOInstanceRGBDDatasetMapper:
             )  # [1,H,W]
 
         # padding mask（True 表示 padding 区域）
-        content_mask = transforms.apply_segmentation(np.ones(image.shape[:2], dtype=np.uint8)).astype(bool)
+        content_mask = transforms.apply_segmentation(
+            np.ones(image.shape[:2], dtype=np.uint8)
+        ).astype(bool)
 
         image_shape = image.shape[:2]
 
         # --- 打包张量 ---
-        dataset_dict["image"] = torch.as_tensor(np.ascontiguousarray(image.transpose(2, 0, 1)))
-        dataset_dict["depth"] = torch.as_tensor(np.ascontiguousarray(depth.transpose(2, 0, 1)))
-        dataset_dict["content_mask"] = torch.as_tensor(np.ascontiguousarray(content_mask))
+        dataset_dict["image"] = torch.as_tensor(
+            np.ascontiguousarray(image.transpose(2, 0, 1))
+        )
+        dataset_dict["depth"] = torch.as_tensor(
+            np.ascontiguousarray(depth.transpose(2, 0, 1))
+        )
+        dataset_dict["content_mask"] = torch.as_tensor(
+            np.ascontiguousarray(content_mask)
+        )
 
         # --- 训练注释 ---
         if not self.is_train:
@@ -362,30 +419,32 @@ class COCOInstanceRGBDDatasetMapper:
                 for obj in dataset_dict.pop("annotations")
                 if obj.get("iscrowd", 0) == 0
             ]
-            instances = utils.annotations_to_instances(annos, image_shape, mask_format="bitmask")
+            instances = utils.annotations_to_instances(
+                annos, image_shape, mask_format="bitmask"
+            )
             if instances.has("gt_masks") and len(instances) > 0:
                 # 获取边界框，处理可能的维度问题
                 try:
                     # 直接从mask计算边界框，避免使用get_bounding_boxes方法
                     masks = instances.gt_masks
-                    if hasattr(masks, 'tensor'):
+                    if hasattr(masks, "tensor"):
                         mask_tensor = masks.tensor
                     else:
                         mask_tensor = torch.as_tensor(masks)
-                    
+
                     # 确保mask_tensor是bool类型
                     if mask_tensor.dtype != torch.bool:
                         mask_tensor = mask_tensor.bool()
-                    
+
                     # 计算每个mask的边界框
                     num_masks = mask_tensor.shape[0]
                     bounding_boxes_list = []
-                    
+
                     for i in range(num_masks):
                         mask = mask_tensor[i]
                         # 找到mask中为True的像素坐标
                         coords = torch.nonzero(mask, as_tuple=False)
-                        
+
                         if coords.numel() == 0:
                             # 如果mask是空的，使用默认边界框
                             bbox = torch.tensor([0.0, 0.0, 1.0, 1.0])
@@ -396,9 +455,9 @@ class COCOInstanceRGBDDatasetMapper:
                             x_max = coords[:, 1].max().float()
                             y_max = coords[:, 0].max().float()
                             bbox = torch.tensor([x_min, y_min, x_max, y_max])
-                        
+
                         bounding_boxes_list.append(bbox)
-                    
+
                     # 将所有边界框堆叠成一个tensor
                     if bounding_boxes_list:
                         bounding_boxes = torch.stack(bounding_boxes_list, dim=0)
@@ -406,7 +465,7 @@ class COCOInstanceRGBDDatasetMapper:
                     else:
                         # 如果没有有效的边界框，跳过设置
                         instances.gt_boxes = Boxes(torch.empty((0, 4)))
-                        
+
                 except Exception as e:
                     # 如果处理失败，跳过gt_boxes的设置，只使用gt_masks
                     print(f"Warning: Failed to process bounding boxes: {e}")
