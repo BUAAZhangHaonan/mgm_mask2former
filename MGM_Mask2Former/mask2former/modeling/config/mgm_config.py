@@ -201,7 +201,7 @@ def add_mgm_config(cfg: CN):
 
     # Depth noise mask supervision
     cfg.INPUT.NOISE_MASK = CN()
-    cfg.INPUT.NOISE_MASK.ENABLED = False
+    cfg.INPUT.NOISE_MASK.ENABLED = True
     cfg.INPUT.NOISE_MASK.CHECK_DIR = True
 
     # 保留原 mask2former 数据增强开关

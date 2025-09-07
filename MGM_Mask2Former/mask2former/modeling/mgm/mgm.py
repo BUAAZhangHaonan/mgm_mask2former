@@ -214,8 +214,14 @@ class ConfidencePredictor(nn.Module):
         image_features: Dict[str, torch.Tensor],
         depth_features: Dict[str, torch.Tensor],
         priors_ms: Dict[str, Dict[str, torch.Tensor]],
-    ) -> Dict[str, torch.Tensor]:
+    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+        """
+        返回:
+          - m_maps: 每个尺度的置信度（sigmoid后，已clamp）
+          - logits_maps: 每个尺度的logits（已经除以温度，用于 with_logits 的 loss）
+        """
         m_maps: Dict[str, torch.Tensor] = {}
+        logits_maps: Dict[str, torch.Tensor] = {}
 
         for i, key in enumerate(self.scale_keys):
             if key not in image_features or key not in depth_features:
@@ -235,11 +241,13 @@ class ConfidencePredictor(nn.Module):
                 features_to_cat.append(self.proj_prior(prior_stack))
 
             x = torch.cat(features_to_cat, dim=1)
-            logits = self.head(x)
-            m = torch.sigmoid(logits / self.temp.clamp(1e-6))
+            raw_logits = self.head(x)
+            logits = raw_logits / self.temp.clamp(1e-6)
+            m = torch.sigmoid(logits)
             m_maps[key] = m.clamp(self.clamp_min, self.clamp_max)
+            logits_maps[key] = logits
 
-        return m_maps
+        return m_maps, logits_maps
 
 
 class MultiModalGatedFusion(nn.Module):
@@ -488,7 +496,7 @@ class MultiModalGatedFusion(nn.Module):
                 if prior_list:
                     priors_for_pred[key] = {"stack": torch.cat(prior_list, dim=1)}
 
-        m_maps = self.conf_pred(image_features, depth_features, priors_for_pred)
+        m_maps, logits_maps = self.conf_pred(image_features, depth_features, priors_for_pred)
 
         fused: Dict[str, torch.Tensor] = {}
         for i, key in enumerate(self.scale_keys):
@@ -534,22 +542,22 @@ class MultiModalGatedFusion(nn.Module):
             # The entropy loss correctly encourages m to be binary.
             if self.noise_mask_weight > 0 and depth_noise_mask is not None:
                 bces = []
-                for m in m_maps.values():
+                for key, m in m_maps.items():
+                    logits = logits_maps.get(key, None)
+                    if logits is None:
+                        continue
                     # 1. 上采样噪声掩码到当前特征图尺寸
                     target_noise_mask = _bilinear(
                         depth_noise_mask.float(), m.shape[-2:]
                     )
-                    # 2. 对掩码做一次最大池化，将其影响范围扩大1像素
-                    #    这将噪声像素的影响扩展到周围1像素邻域，实现监督信号的软化
-                    #    避免模型在洞的边缘学习到过于陡峭的置信度变化，提高学习稳定性
-                    #    符合物理直觉：噪声像素周围的像素也可能不可靠，创造平滑过渡带
-                    #    零配置：kernel_size=3, padding=1是标准的1像素膨胀，无需调整参数
-                    #    零性能开销：3x3最大池化在现代GPU上几乎是瞬时的
+                    # 2. 最大池化膨胀1像素
                     target_noise_mask_dilated = F.max_pool2d(
                         target_noise_mask, kernel_size=3, stride=1, padding=1
                     )
-                    # 3. 使用膨胀后的掩码作为监督目标
-                    bce = F.binary_cross_entropy(m, 1.0 - target_noise_mask_dilated)
+                    # 3. 使用 logits 上的 with_logits 版本（AMP安全）
+                    bce = F.binary_cross_entropy_with_logits(
+                        logits, 1.0 - target_noise_mask_dilated
+                    )
                     bces.append(bce)
 
                 if bces:
