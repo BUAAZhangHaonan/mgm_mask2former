@@ -199,9 +199,11 @@ if __name__ == "__main__":
     """
     使用示例：
 python predict_mgm.py \
-    --config /home/fuyx/zhn/mask2former/MGM_Mask2Former/configs/mgm_swin_convnext_tiny.yaml \
-    --weights /home/fuyx/zhn/mask2former/MGM_Mask2Former/pretrained-checkpoint/model_final.pth  \
-    --input /home/fuyx/zhn/mask2former/MGM_Mask2Former/predict_test/27,5x31x18x26_25_scene_000000_000001_v0.png  \
+    --config MGM_Mask2Former/configs/mgm_swin_convnext_tiny.yaml \
+    --weights MGM_Mask2Former/pretrained-checkpoint/0909_2K_REAL_0909_5K.pth  \
+    --input MGM_Mask2Former/predict_test/3521_7843763521_25_scene_000001_000001_v0.png  \
     --input-type rgbd  \
-    --output /home/fuyx/zhn/mask2former/MGM_Mask2Former/predict_test/output/test.png
+    --output /home/fuyx/zhn/mask2former/MGM_Mask2Former/predict_test/output/3521_7843763521_25_scene_000001_000001_v0_segment_result.png
+    
+    python3 MGM_Mask2Former/predict_mgm.py --config MGM_Mask2Former/configs/mgm_swin_convnext_tiny.yaml --weights output/0909_0.12K/0909_10K/model_final.pth --input MGM_Mask2Former/predict_test/512/3521_7843763521_25_scene_000001_000001_v0.png --input-type rgbd --output MGM_Mask2Former/predict_test/512/output/3521_7843763521_25_scene_000001_000001_v0_segment_result.png
     """
