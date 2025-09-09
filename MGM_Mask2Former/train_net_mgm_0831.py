@@ -72,7 +72,6 @@ from mask2former import (
     COCOInstanceRGBDDatasetMapper,
     InstanceSegEvaluator,
     SemanticSegmentorWithTTA,
-    add_maskformer2_config,
     add_mgm_config,
 )
 
@@ -368,7 +367,6 @@ def setup(args):
     cfg = get_cfg()
     # for poly lr schedule
     add_deeplab_config(cfg)
-    add_maskformer2_config(cfg)
     add_mgm_config(cfg)
     cfg.merge_from_file(args.config_file)
     cfg.merge_from_list(args.opts)

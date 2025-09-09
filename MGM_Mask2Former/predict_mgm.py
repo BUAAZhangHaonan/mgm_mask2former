@@ -12,7 +12,6 @@ from detectron2.config import get_cfg
 from detectron2.modeling import build_model
 from detectron2.checkpoint import DetectionCheckpointer
 
-# 导入 MGM 的特定配置函数
 from mask2former.modeling.config.mgm_config import add_mgm_config
 
 
@@ -59,7 +58,6 @@ class RGBDPredictor:
 
 def setup_cfg(config_path, weight_path):
     cfg = get_cfg()
-    # 使用 add_mgm_config 来支持 MGM 的配置项
     add_mgm_config(cfg)
     cfg.merge_from_file(config_path)
 
@@ -132,7 +130,7 @@ def main(args):
 
     instances = outputs["instances"].to("cpu")
     # --- 可选的改进：根据置信度分数进行筛选 ---
-    confidence_threshold = 0.7  # 设置一个置信度阈值
+    confidence_threshold = 0.1  # 设置一个置信度阈值
     high_conf_indices = instances.scores > confidence_threshold
 
     scores = instances.scores[high_conf_indices]
