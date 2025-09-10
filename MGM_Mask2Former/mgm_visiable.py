@@ -525,16 +525,16 @@ def attach_targets(batch, num_classes):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--cfg", default="MGM_Mask2Former/configs/mgm_swin_convnext_tiny.yaml", help="Path to config yaml")
-    parser.add_argument("--weights", default="MGM_Mask2Former/pretrained-checkpoint/0907_20K_DEPTH_NOISE.pth", help="预训练权重(.pth)")
+    parser.add_argument("--weights", default="MGM_Mask2Former/pretrained-checkpoint/0909_512_0.12K_0909_20K.pth", help="预训练权重(.pth)")
     parser.add_argument("--device", default="cuda", help="cuda 或 cpu")
-    parser.add_argument("--size", type=int, default=1024, help="合成数据尺寸 (正方形)")
+    parser.add_argument("--size", type=int, default=512, help="合成数据尺寸 (正方形)")
     parser.add_argument("--batch", type=int, default=2)
     parser.add_argument("--detailed-stats", action="store_true")
     parser.add_argument("--no-train", action="store_true", help="跳过训练链路测试")
     parser.add_argument("--export-conf", action="store_true", help="导出多尺度置信度图")
     parser.add_argument("--out-dir", default="output/mgm_conf_out", help="输出目录")
-    parser.add_argument("--rgb", default="MGM_Mask2Former/input/DEPTH_NOISE/RGB/3521_7843763521_100_scene_000000_002186_v1.png", help="真实RGB路径，可选")
-    parser.add_argument("--depth", default="MGM_Mask2Former/input/DEPTH_NOISE/DEPTH/3521_7843763521_100_scene_000000_002186_v1.npy", help="真实Depth路径，可选(npy或图像)")
+    parser.add_argument("--rgb", default="MGM_Mask2Former/predict_test/512/3521_7843763521_25_scene_000001_000001_v0.png", help="真实RGB路径，可选")
+    parser.add_argument("--depth", default="MGM_Mask2Former/predict_test/512/3521_7843763521_25_scene_000001_000001_v0.npy", help="真实Depth路径，可选(npy或图像)")
     parser.add_argument(
         "--resize-input", type=int, default=None, help="读取真实图像时限制最长边"
     )

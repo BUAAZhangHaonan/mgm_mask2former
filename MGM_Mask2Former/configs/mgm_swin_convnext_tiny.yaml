@@ -1,6 +1,6 @@
 MODEL:
   META_ARCHITECTURE: "MGMMaskFormer"
-  FINETUNE_WEIGHTS: "output/0909_0.12K/0909_10K/model_final.pth"
+  FINETUNE_WEIGHTS: "MGM_Mask2Former/pretrained-checkpoint/0909_512_0.12K_0909_10K.pth"
 
   # RGB Backbone: Swin Transformer Tiny
   RGB_BACKBONE:
@@ -12,7 +12,7 @@ MODEL:
       NUM_HEADS: [3, 6, 12, 24]
       WINDOW_SIZE: 7
       APE: False
-      DROP_PATH_RATE: 0.1
+      DROP_PATH_RATE: 0.2
       PATCH_NORM: True
       OUT_FEATURES: ["res2", "res3", "res4", "res5"]
 
@@ -23,7 +23,7 @@ MODEL:
     CONVNEXT:
       DEPTHS: [3, 3, 9, 3]
       DIMS: [96, 192, 384, 768]
-      DROP_PATH_RATE: 0.1
+      DROP_PATH_RATE: 0.2
       LAYER_SCALE: 1e-6
 
   # MGM Fusion Configuration
@@ -31,10 +31,10 @@ MODEL:
     ENABLED: True
     RESIDUAL_ALPHA: 0.05
     POST_FUSE_NORM: True
-    LOSS_ENTROPY_W: 0.1
+    LOSS_ENTROPY_W: 0.05
     TEMP_INIT: 2.0
     TEMP_FINAL: 1.0
-    TEMP_STEPS: 2000
+    TEMP_STEPS: 5000
     CLAMP_MIN: 0.05
     CLAMP_MAX: 0.95
     NOISE_MASK_WEIGHT: 0.0
@@ -45,9 +45,9 @@ MODEL:
     PRIOR:
       ENABLED: True # 总开关
       USE_GRADIENT: True # 先验逐项开关
-      USE_VARIANCE: True
+      USE_VARIANCE: False
       USE_VALID_HOLE: True
-      USE_RGB_EDGE: True # 前期建议关（最耗时）
+      USE_RGB_EDGE: False # 前期建议关（最耗时）
       VAR_KERNEL: 5
       Z_MIN: 0.05
       Z_MAX: 0.95
@@ -66,10 +66,15 @@ MODEL:
     ENABLED: False
 
   # RGB Input Pixel Mean/Std
-  # PIXEL_MEAN: [34.9731, 30.5413, 28.1363]
-  # PIXEL_STD: [64.8187, 60.9879, 57.2803]
-  PIXEL_MEAN: [137.6993, 134.0405, 135.1704]
-  PIXEL_STD: [42.4754, 50.1665, 46.0455]
+  # 0825_10K
+  # PIXEL_MEAN: [34.3836, 30.8015, 28.3452]
+  # PIXEL_STD: [64.4593, 61.4103, 57.7407]
+  # 0909_1024_2K
+  # PIXEL_MEAN: [137.6993, 134.0405, 135.1704]
+  # PIXEL_STD: [42.4754, 50.1665, 46.0455]
+  # 0909_512_0.12K
+  PIXEL_MEAN: [145.8863, 85.7720, 88.8209]
+  PIXEL_STD: [47.4676, 69.8726, 67.9742]
 
   # Semantic Segmentation Head
   SEM_SEG_HEAD:
@@ -99,10 +104,10 @@ MODEL:
     HIDDEN_DIM: 256
     NUM_OBJECT_QUERIES: 200
     NHEADS: 8
-    DROPOUT: 0.0
+    DROPOUT: 0.2
     DIM_FEEDFORWARD: 2048
     ENC_LAYERS: 0
-    DEC_LAYERS: 6
+    DEC_LAYERS: 10
     PRE_NORM: False
     ENFORCE_INPUT_PROJ: False
     SIZE_DIVISIBILITY: 32
@@ -114,7 +119,7 @@ MODEL:
       INSTANCE_ON: True
       PANOPTIC_ON: False
       OVERLAP_THRESHOLD: 0.5
-      OBJECT_MASK_THRESHOLD: 0.7
+      OBJECT_MASK_THRESHOLD: 0.1
 
 # 数据集配置
 DATASETS:
@@ -123,14 +128,14 @@ DATASETS:
 
 # 数据加载器配置
 DATALOADER:
-  NUM_WORKERS: 8
+  NUM_WORKERS: 16
   ASPECT_RATIO_GROUPING: True
   FILTER_EMPTY_ANNOTATIONS: True
   REPEAT_THRESHOLD: 0.0
 
-  # RGB-D Input Configuration - 快速训练模式
+# RGB-D Input Configuration
 INPUT:
-  DATASET_ROOT: "/home/fuyx/zhn/mgm_datasets/dataset_0909_512_LESS"
+  DATASET_ROOT: "/home/remote1/zhanghaonan/projects/mask2former_datasets/0909_512_0.12K"
   IMAGE_SIZE: 512
   MIN_SCALE: 0.8
   MAX_SCALE: 1.2
@@ -155,24 +160,20 @@ INPUT:
   DEPTH_CLIP_MAX: 1.0
   DEPTH_NORM: "minmax"
   DEPTH_NOISE:
-    ENABLED: True
+    ENABLED: False
     GAUSSIAN_STD: 0.05
     SPECKLE_STD: 0.0
     DROP_PROB: 0.05
     DROP_VAL: 0.0
 
-  NOISE_MASK:
-    ENABLED: True
-    CHECK_DIR: True
-
 # 求解器配置
 SOLVER:
-  IMS_PER_BATCH: 1
+  IMS_PER_BATCH: 16
   BASE_LR: 1e-4
-  STEPS: (8000, 9000)
-  MAX_ITER: 10000
+  STEPS: (18000, 19000)
+  MAX_ITER: 20000
   WARMUP_FACTOR: 0.01
-  WARMUP_ITERS: 2000
+  WARMUP_ITERS: 5000
   WARMUP_METHOD: linear
   GAMMA: 0.1
   OPTIMIZER: ADAMW
@@ -195,7 +196,7 @@ TEST:
     ENABLED: False
 
 # 输出配置
-OUTPUT_DIR: "./output/0909_0.12K/0909_10K"
+OUTPUT_DIR: "./output/0909_512_0.12K/0909_20K_RGB_MGM_DPE"
 
 # 版本号
 VERSION: 2.0

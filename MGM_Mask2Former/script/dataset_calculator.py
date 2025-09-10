@@ -99,7 +99,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dataset_root",
         type=str,
-        default="/home/fuyx/zhn/mgm_datasets/0831_1K",
+        default="/home/fuyx/zhn/mgm_datasets/dataset_0909_512_LESS",
         help="数据集的根目录 (例如: mgm_test_input)",
     )
     args = parser.parse_args()
