@@ -253,7 +253,7 @@ def process_one(img_path: Path, rel_from_split: Path, out_base: Path,
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset-root", type=str, required=True)
-    ap.add_argument("--splits", type=str, nargs="+", default=["val", "test"],
+    ap.add_argument("--splits", type=str, nargs="+", default=["train", "val", "test"],
                     choices=["train", "val", "test"])
     ap.add_argument("--corruptions", type=str, nargs="+", default=["all"],
                     choices=list(CORRUPTIONS.keys()) + ["all"])
@@ -261,7 +261,7 @@ def main():
                     choices=[1,2,3,4,5])
     ap.add_argument("--seed", type=int, default=2025)
     ap.add_argument("--num-workers", type=int, default=min(16, os.cpu_count() or 8))
-    ap.add_argument("--out-subdir", type=str, default="images_corrupted")
+    ap.add_argument("--out-subdir", type=str, default="/home/hdd3/luyuzhou/projects/elecsim-dataset-create/dataset_final_0911_2k/images_corrupted")
     ap.add_argument("--overwrite", action="store_true")
     args = ap.parse_args()
 

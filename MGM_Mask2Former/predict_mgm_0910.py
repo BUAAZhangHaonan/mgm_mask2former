@@ -7,10 +7,10 @@
 1. 单张（显式深度）:
 python3 MGM_Mask2Former/predict_mgm_0910.py \
   --config MGM_Mask2Former/configs/mgm_swin_convnext_tiny.yaml \
-  --weights MGM_Mask2Former/pretrained-checkpoint/0909_1024_2K_0910_40K.pth \
-  --input MGM_Mask2Former/predict_test/1024/3521_7843763521_50_scene_000000_001153_v0.png \
-  --depth MGM_Mask2Former/predict_test/1024/3521_7843763521_50_scene_000000_001153_v0.npy \
-  --output MGM_Mask2Former/predict_test/1024/output \
+  --weights MGM_Mask2Former/pretrained-checkpoint/0909_512_2K_0910_10K.pth \
+  --input MGM_Mask2Former/predict_test/512/3521_7843763521_50_scene_000000_001123_v0.png \
+  --depth MGM_Mask2Former/predict_test/512/3521_7843763521_50_scene_000000_001123_v0.npy \
+  --output MGM_Mask2Former/predict_test/512/output/3521_7843763521_50_scene_000000_001123_v0 \
   --save-json
 
 2. 目录（按数据集结构自动找深度）:
@@ -65,8 +65,9 @@ warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings(
     "ignore",
     message="You are using `torch.load` with `weights_only=False`",
-    category=FutureWarning
+    category=FutureWarning,
 )
+
 
 # --------------------------------------------------
 # 工具函数
@@ -389,7 +390,9 @@ def main():
     parser.add_argument(
         "--dataset-root", default="", help="若提供则按数据集结构推断深度"
     )
-    parser.add_argument("--output", default="MGM_Mask2Former/predict_test/512/output", help="输出根目录")
+    parser.add_argument(
+        "--output", default="MGM_Mask2Former/predict_test/512/output", help="输出根目录"
+    )
     parser.add_argument(
         "--vis-threshold",
         type=float,

@@ -496,7 +496,9 @@ class MultiModalGatedFusion(nn.Module):
                 if prior_list:
                     priors_for_pred[key] = {"stack": torch.cat(prior_list, dim=1)}
 
-        m_maps, logits_maps = self.conf_pred(image_features, depth_features, priors_for_pred)
+        m_maps, logits_maps = self.conf_pred(
+            image_features, depth_features, priors_for_pred
+        )
 
         fused: Dict[str, torch.Tensor] = {}
         for i, key in enumerate(self.scale_keys):
@@ -515,9 +517,6 @@ class MultiModalGatedFusion(nn.Module):
             if self.prior_enabled and self.prior_use_valid_hole:
                 dep_a = dep_a * priors_ms[key]["valid"]
 
-            fused_base = m * dep_a + (1.0 - m) * img_a
-            # out = fused_base + self.residual_alpha * img_a
-            # 严格无放大版残差
             out = m * (dep_a + self.residual_alpha * img_a) + (1.0 - m) * img_a
 
             if self.post_norm:

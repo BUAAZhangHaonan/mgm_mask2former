@@ -14,6 +14,7 @@ def add_mgm_config(cfg: CN):
     cfg.SOLVER.OPTIMIZER = "ADAMW"
     cfg.SOLVER.BACKBONE_MULTIPLIER = 0.1
 
+    # 预训练权重设置
     cfg.MODEL.FINETUNE_WEIGHTS = ""
 
     # -------------------------
@@ -118,10 +119,8 @@ def add_mgm_config(cfg: CN):
     # -------------------------
     cfg.MODEL.DPE = CN()
     cfg.MODEL.DPE.ENABLED = True
-
     cfg.MODEL.BOUNDARY = CN()
     cfg.MODEL.BOUNDARY.ENABLED = False
-
     cfg.MODEL.MGM = CN()
     cfg.MODEL.MGM.ENABLED = True
     cfg.MODEL.MGM.RESIDUAL_ALPHA = 0.05
